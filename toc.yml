@@ -13,3 +13,5 @@ entries:
 - file: pytorch-tensorflow-env/README
 - file: jacobi/README
 - file: spmv/docs/SpMV_Part1
+- file: affinity/Affinity_Part1
+- file: affinity/Affinity_Part2
