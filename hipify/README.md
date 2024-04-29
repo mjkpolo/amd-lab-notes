@@ -33,7 +33,7 @@ Figure 1 shows several examples of applications that have been ported and the
 corresponding porting effort.
 
 In this post, we introduce the HIP portability layer, the tools in the AMD ROCm&trade;
-stack that can be used to automatically convert legacy CUDA code to HIP, and show how
+stack that can be used to automatically convert CUDA code to HIP, and show how
 we can run the same code in both AMD and NVIDIA GPUs with a portable HIP build system.
 
 <!-- 
@@ -67,17 +67,17 @@ run on both AMD and NVIDIA platforms.
 Figure 2: HIP to device flowchart illustrating the platform-independent abstraction layer.
 </p>
 
-Figure 3 shows the various paradigms and tools that could be used to program GPUs today
-and the corresponding abstraction level across the system stack. HIP sits closer to the
-hardware than other GPU programming abstraction layers, and as such, it is capable of
-accelerating codes with minimal overhead. This feature results in HIP code that runs on
-NVIDIA accelerators with the same performance as the original CUDA code. Furthermore,
-both AMD and NVIDIA share the host-device architecture, where the CPU is the host and
-the GPU is the device. The host supports C++, C, Fortran, and Python. C++ is the most
-common and best-supported language, with the entry point being the `main()` function. The
-host runs the HIP API and HIP function calls that map to either CUDA or HIP. Kernels
+Figure 3 shows the various programming paradigms and tools that could be used to accelerate
+codes on the GPUs and the corresponding abstraction level across the system stack. HIP
+sits closer to the hardware than other GPU programming abstraction layers, and as such,
+it is capable of accelerating codes with minimal overhead. This feature results in HIP
+code that runs on NVIDIA accelerators with similar performance as the original CUDA code.
+Furthermore, both AMD and NVIDIA share the host-device architecture, where the CPU is the
+host and the GPU is the device. The host supports C++, C, Fortran, and Python. C++ is the
+most common and best-supported language, with the entry point being the `main()` function.
+The host runs the HIP API and HIP function calls that map to either CUDA or HIP. Kernels
 run on the device, which supports C-like syntax. Lastly, the HIP API provides many
-useful functions for device and memory management and error handling. HIP is
+useful functions for device and memory management, and error handling. HIP is
 open-source and you can contribute to it.
 
 <!-- 
@@ -94,11 +94,11 @@ Figure 3: GPU programming abstraction levels.
 
 Manually converting large and complex existing CUDA code projects to HIP is an
 error-prone and time-consuming process. Given the syntactic similarity between HIP and
-CUDA, it is possible to easily convert CUDA code to portable HIP C++. The AMD
-ROCm&trade; stack has translation utilities and scripts that significantly speed up the
-process. These utilities can be used in isolation or combined as part of an iterative
-process to port larger, more complex CUDA applications, thus reducing manual effort and
-time to deployment of CUDA applications on AMD-based systems.
+CUDA, it is possible to build automated conversion tools to translate CUDA code to
+portable HIP C++. The AMD ROCm&trade; stack has translation utilities and scripts
+that significantly speed up the process. These utilities can be used in isolation or combined
+as part of an iterative process to port larger, more complex CUDA applications, thus reducing
+manual effort and time to deployment of CUDA applications on AMD-based systems.
 
 ### What tools to use?
 
@@ -108,15 +108,15 @@ To elucidate, we encourage developers to use the following questionnaire as a te
 to gather more information about their project:
 
 1. *How complex is the code structure*?
-    - [x] Uses object-oriented programming?
-    - [x] Relies on templated classes?
-    - [x] Dependencies on other libraries and packages?
-    - [x] Has device-specific code?
+    - Uses object-oriented programming?
+    - Relies on templated classes?
+    - Dependencies on other libraries and packages?
+    - Has device-specific code?
 2. *What are the design considerations*?
-    - [x] Should we maintain separate backends for CUDA and HIP?
+    - Should we maintain separate backends for CUDA and HIP?
 3. *Is the code base under active development*?
-    - [x] What is the frequency of updates?
-    - [x] Are the development efforts focused on a particular feature?
+    - What is the frequency of updates?
+    - Are the development efforts focused on a particular feature?
 
 Once the requirements and objectives assessment is complete, developers can choose one
 of the following strategies to translate their CUDA code to HIP.
@@ -167,12 +167,12 @@ the hood.
 
 #### General tips
 
-- Starting the port on a Nvidia GPU is often the easiest approach since you can
+- Starting the port on an NVIDIA GPU is often the easiest approach since you can
 incrementally port pieces of the code to HIP while leaving the rest in CUDA. Recall
-that on Nvidia GPUs, HIP is just a thin layer over CUDA, so the two code types can
+that on NVIDIA GPUs, HIP is just a thin layer over CUDA, so the two code types can
 interoperate on *nvcc* platforms. Also, the HIP port can be compared with the original
 CUDA code for function and performance.
-- Once the CUDA code is ported to HIP and is running on Nvidia GPUs, compile the HIP
+- Once the CUDA code is ported to HIP and is running on NVIDIA GPUs, compile the HIP
 code using the HIP compiler on an AMD GPU.
 
 ### Hipify tools
@@ -280,7 +280,7 @@ A quick inspection of the translated code shows:
 2. CUDA types and APIs such as `cudaError_t`, `cudaMalloc`, etc. have been replaced
 with HIP counterparts.
 3. User definitions, function names, and variables remain the same.
-4. From ROCm v5.3, the default HIP kernel launch syntax is the same as that in CUDA.
+4. From ROCm 5.3, the default HIP kernel launch syntax is the same as that in CUDA.
 The previous `hipLaunchKernelGGL` syntax continues to be supported and can be used by
 specifiying the `--hip-kernel-execution-syntax` option to *hipify-clang*.
 
@@ -359,11 +359,12 @@ known limitations and its use should call for caution.
 
 ## Portable HIP build system
 
-One of the most powerful features of HIP is that it can run on both AMD and NVIDIA
-GPUs. Currently, many applications that target both platforms have dual repositories
-and a build system for HIP and CUDA, respectively. With ROCm&trade; we can have a
-portable HIP build system to avoid maintaining two separate code bases for the same
-project.
+One of the most powerful features of HIP is that, if the original code is using
+[HIP supported CUDA API](https://rocm.docs.amd.com/projects/HIPIFY/en/latest/supported_apis.html),
+then the HIP translated code can run on both AMD and NVIDIA GPUs. Currently,
+many applications that target both platforms have dual repositories and a build
+system for HIP and CUDA, respectively. With ROCm&trade; we can have a portable HIP
+build system to avoid maintaining two separate code bases for the same project.
 
 In a portable HIP build system, it is possible to select either an `amd` or an `nvidia`
 platform to run on. By setting the `HIP_PLATFORM` environment variable, we can
@@ -555,4 +556,4 @@ counterpart on NVIDIA GPUs.
 
 Stay tuned as we release further posts in this series that will cover more advanced
 topics. If you have any questions or comments, you can reach out to us on
-[GitHub Discussions](https://github.com/rocm/rocm-blogs/discussions).
+[GitHub Discussions](https://github.com/amd/amd-lab-notes/discussions).
