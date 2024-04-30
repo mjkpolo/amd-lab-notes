@@ -18,7 +18,7 @@ GPUs (including consumer cards), this blog post focuses on the
 cards, respectively) using [ROCm][5] 6.1. As a code example, we focus on
 the [Travelling Salesman Problem (TSP)][10] solver available [here][11].
 
-## [The travelling salesman problem][10] ##
+## The travelling salesman problem ##
 
 [The travelling salesman problem][10] tries to answer the following question:
 "Given a list of cities and the distances between each pair of cities, what is
@@ -88,7 +88,7 @@ same code takes about 156 seconds for a [TSP][10] instance involving thirteen
 cities. This is a normal consequence of the exponential growth of the search
 space imposed by the [TSP][10].
 
-## Execution policies and [HIPSTDPAR][6] ##
+## Execution policies and HIPSTDPAR ##
 
 Since each of the `N!` paths are independent, computing their individual cost is
 an embarrassingly parallel operation. C++17 allows developers to easily
@@ -188,7 +188,7 @@ to parallel unsequenced execution offloaded to the accelerator:
 | `par_unseq` on CPU | 75         |
 | `par_unseq` on GPU | 4.8        |
 
-## [TeaLeaf][43] ##
+## TeaLeaf ##
 
 A more complex example showing the use and performance of [HIPSTDPAR][6] is
 [TeaLeaf][43]. The code is a C++ implementation of the
@@ -259,7 +259,7 @@ As expected, the performance of the [HIP][30] version when introducing
 to reduce the overhead, thus bringing the offloaded version closer to the
 [HIP][30] one.
 
-## Nuts and bolts of [HIPSTDPAR][6] ##
+## Nuts and bolts of HIPSTDPAR ##
 
 The ability to offload C++ Standard Parallel algorithm execution to the GPU
 relies on the interaction between the [LLVM compiler][17], [HIPSTDPAR][6], and
