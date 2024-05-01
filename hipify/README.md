@@ -34,7 +34,7 @@ corresponding porting effort.
 
 In this post, we introduce the HIP portability layer, the tools in the AMD ROCm&trade;
 stack that can be used to automatically convert CUDA code to HIP, and show how
-we can run the same code in both AMD and NVIDIA GPUs with a portable HIP build system.
+we can run the same code in both AMD and NVIDIA® GPUs with a portable HIP build system.
 
 <!-- 
 ================
