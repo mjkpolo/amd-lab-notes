@@ -26,7 +26,7 @@ including [Frontier](https://www.olcf.ornl.gov/frontier/), the first Exascale sy
 the world. These applications, coming from a myriad of science domains, were ported to
 run on AMD GPUs using the Heterogeneous-compute Interface for Portability (HIP)
 abstraction layer. HIP enables these High-Performance Computing (HPC) facilities to
-transition their CUDA codes to run and take advantage of the latest AMD GPUs.
+transition their legacy CUDA codes to run and take advantage of the latest AMD GPUs.
 The effort involved in porting these scientific applications varies from a few hours
 to a few weeks and largely depends on the complexity of the original source code.
 Figure 1 shows several examples of applications that have been ported and the
@@ -34,7 +34,7 @@ corresponding porting effort.
 
 In this post, we introduce the HIP portability layer, the tools in the AMD ROCm&trade;
 stack that can be used to automatically convert CUDA code to HIP, and show how
-we can run the same code in both AMD and NVIDIA® GPUs with a portable HIP build system.
+we can run the same code in both AMD and NVIDIA GPUs with a portable HIP build system.
 
 <!-- 
 ================
@@ -102,7 +102,7 @@ manual effort and time to deployment of CUDA applications on AMD-based systems.
 
 ### What tools to use?
 
-The final choice of the tool or strategy to translate CUDA to HIP depends on
+The final choice of the tool or strategy to translate legacy CUDA to HIP depends on
 multiple factors, including the code complexity and the developer's design choices.
 To elucidate, we encourage developers to use the following questionnaire as a template
 to gather more information about their project:
@@ -549,7 +549,7 @@ is its ability to run on both AMD and NVIDIA GPUs, by showing examples of portab
 build systems with both Make and CMake.
 
 Unlike many other GPU-programmming paradigms, the HIP API is a thin layer that sits
-close to the hardware, enabling HIP code to run with the similar performance as its
+close to the hardware, enabling HIP code to run with the same performance as its
 counterpart on NVIDIA GPUs.
 
 ## Next time
