@@ -19,6 +19,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#include <cstddef>
 #include <hip/hip_runtime.h>
 #include <iostream>
 #include <vector>
@@ -49,7 +50,7 @@ constexpr int A_size = M * LDA;
 constexpr int B_size = K * LDB;
 constexpr int D_size = M * LDD;
 
-__global__ void dgemm_16x16x16(const double* A, const double* B, double* D)
+__global__ void dgemm_16x16x16(const double* A, const double* B, double* D, size_t* cycles)
 {
 
 #if __gfx90a__
@@ -57,6 +58,9 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D)
   using double4 = __attribute__((__vector_size__(4 * sizeof(double)))) double;
   double4 d = {0}; // zero out 4 * 2 vanilla VGPRs
 
+  size_t start, end;
+  size_t &total = cycles[threadIdx.x+threadIdx.y*16];
+  total = 0;
   /*
   One invocation of v_mfma_f64_16x16x4f64 accumulates the sum of four outer products,
   four columns of A with four rows of B, into result matrix D (which is in AccVGPRs).
@@ -76,11 +80,21 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D)
   int a_idx = LDA * threadIdx.x + threadIdx.y;
   int b_idx = threadIdx.x + LDB * threadIdx.y;
 
+#pragma unroll 1
   for(int i = 0; i < 4; ++i){
     const double a = A[a_idx];
     const double b = B[b_idx];
 
-    d = __builtin_amdgcn_mfma_f64_16x16x4f64(a, b, d, 0, 0, 0);
+    // d = __builtin_amdgcn_mfma_f64_16x16x4f64(a, b, d, 0, 0, 0);
+
+    asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+                 "s_memtime %[start]\n\t"
+                 "s_waitcnt lgkmcnt(0)\n\t"
+                 "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
+                 "s_memtime %[end]\n\t"
+                 "s_waitcnt lgkmcnt(0)\n\t"
+                 : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+                 : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
     //                                       ^  ^  ^
     //D(=C)                                  |  |  C(=D)
     //                    two columns of A---|  |--- two rows of B
@@ -92,6 +106,7 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D)
   For v_mfma_f64_16x16x4f64, the layout of rows 0-3, 4-7, 8-11, and 12-15 of the
   matrices D (and C) is the same as the layout for B; see above
   */
+#pragma unroll 1
   for(int i = 0; i < 4; ++i){
     const int d_idx =  threadIdx.x           // consecutive threads cover 16 consecutive columns
                       + 4 * LDD * i          // consecutive registers skip 4 rows
@@ -127,14 +142,16 @@ if (!gpuArchCheck("gfx90a")) {
 
   // Make and populate device buffers
   double *A_d, *B_d, *D_d;
+  size_t *cycles_d, *cycles = new size_t[16*4];
   HIP_CHECK(hipMalloc(&A_d, A_size * sizeof(double)));
   HIP_CHECK(hipMalloc(&B_d, B_size * sizeof(double)));
   HIP_CHECK(hipMalloc(&D_d, D_size * sizeof(double)));
+  HIP_CHECK(hipMalloc(&cycles_d, 16 * 4 * sizeof(size_t)));
   HIP_CHECK(hipMemcpy(A_d, A_h.data(), A_size * sizeof(double), hipMemcpyHostToDevice));
   HIP_CHECK(hipMemcpy(B_d, B_h.data(), B_size * sizeof(double), hipMemcpyHostToDevice));
 
   // Launch GEMM kernel
-  dgemm_16x16x16<<<1, dim3(16, 4)>>>(A_d, B_d, D_d);
+  dgemm_16x16x16<<<1, dim3(16, 4)>>>(A_d, B_d, D_d, cycles_d);
   HIP_CHECK(hipGetLastError());
 
   // Copy result back to host
@@ -145,6 +162,11 @@ if (!gpuArchCheck("gfx90a")) {
             << compute_l2_error(Dref_h, D_h, M, N, LDD, LDD)
             << std::endl;
 
+  for (int i = 0; i < 16 * 4; i++) {
+    std::cout << "Cycles[" << i << "]: " << cycles[i] << std::endl;
+  }
+
+  delete [] cycles;
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));
   HIP_CHECK(hipFree(A_d));

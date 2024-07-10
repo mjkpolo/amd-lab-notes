@@ -19,6 +19,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#include <cstddef>
 #include <hip/hip_runtime.h>
 #include <iostream>
 #include <vector>
@@ -50,7 +51,7 @@ constexpr int B_size = K * LDB;
 constexpr int D_size = M * LDD;
 
 
-__global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D)
+__global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D, size_t* cycles)
 {
 
 #if __gfx90a__ || __gfx908__
@@ -88,9 +89,13 @@ __global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D)
 
   This kernel is called with a single wavefront in dim3(16, 4) layout
   */
+  size_t start, end;
+  size_t &total = cycles[threadIdx.x+threadIdx.y*16];
+  total = 0;
 
   int8_t a[4];
   int8_t b[4];
+#pragma unroll 1
   for(int i = 0; i < 4; ++i){
     const int a_idx =  threadIdx.x * LDA      // consecutive threads cover 16 consecutive rows
                      + i                      // consecutive registers take consecutive columns
@@ -103,7 +108,16 @@ __global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D)
     b[i] = B[b_idx];
   }
 
-  d = __builtin_amdgcn_mfma_i32_16x16x16i8(*reinterpret_cast<int32_t*>(a), *reinterpret_cast<int32_t*>(b), d, 0, 0, 0);
+  // d = __builtin_amdgcn_mfma_i32_16x16x16i8(*reinterpret_cast<int32_t*>(a), *reinterpret_cast<int32_t*>(b), d, 0, 0, 0);
+
+  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+               "s_memtime %[start]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
+               "s_memtime %[end]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+               : [A] "v"(*reinterpret_cast<int32_t*>(a)), [B] "v"(*reinterpret_cast<int32_t*>(b)), [C] "v"(d)); // just change "v" to "a"
   //                                        ^  ^  ^
   //D(=C)                                   |  |  C(=D)
   //                      16 columns of A---|  |--- 16 rows of B
@@ -119,6 +133,9 @@ __global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D)
     first 16 lanes of d[2] cover row 2 -  last 16 lanes of d[2] cover row 14
     first 16 lanes of d[3] cover row 3 -  last 16 lanes of d[3] cover row 15
   */
+  total += end - start;
+
+#pragma unroll 1
   for(int i = 0; i < 4; ++i){
     const int d_idx =  threadIdx.x            // consecutive threads cover 16 consecutive columns
                      + i * LDD                // consecutive registers take consecutive rows of 16 floats
@@ -156,25 +173,33 @@ int main(){
 
   // Make and populate device buffers
   int8_t *A_d, *B_d;
+  size_t *cycles_d, *cycles = new size_t[16*4];
   int32_t *D_d;
   HIP_CHECK(hipMalloc(&A_d, A_size * sizeof(int8_t)));
   HIP_CHECK(hipMalloc(&B_d, B_size * sizeof(int8_t)));
   HIP_CHECK(hipMalloc(&D_d, D_size * sizeof(int32_t)));
+  HIP_CHECK(hipMalloc(&cycles_d, 16 * 4 * sizeof(size_t)));
   HIP_CHECK(hipMemcpy(A_d, A_h.data(), A_size * sizeof(int8_t), hipMemcpyHostToDevice));
   HIP_CHECK(hipMemcpy(B_d, B_h.data(), B_size * sizeof(int8_t), hipMemcpyHostToDevice));
 
   // Launch GEMM kernel
-  igemm_16x16x16<<<1, dim3(16, 4)>>>(A_d, B_d, D_d);
+  igemm_16x16x16<<<1, dim3(16, 4)>>>(A_d, B_d, D_d, cycles_d);
   HIP_CHECK(hipGetLastError());
 
   // Copy result back to host
   std::vector<int32_t> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(int32_t), hipMemcpyDeviceToHost));
+  HIP_CHECK(hipMemcpy(cycles, cycles_d, 16 * 4 * sizeof(size_t), hipMemcpyDeviceToHost));
 
   std::cout << "Sum of squared differences of host/device result matrices: "
             << compute_l2_error(Dref_h, D_h, M, N, LDD, LDD)
             << std::endl;
 
+  for (int i = 0; i < 16 * 4; i++) {
+    std::cout << "Cycles[" << i << "]: " << cycles[i] << std::endl;
+  }
+
+  delete [] cycles;
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));
   HIP_CHECK(hipFree(A_d));

@@ -19,6 +19,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#include <cstddef>
 #include <hip/hip_runtime.h>
 #include <iostream>
 #include <vector>
@@ -54,7 +55,7 @@ constexpr int A_size = batchStrideA * nBatch;
 constexpr int B_size = batchStrideB * nBatch;
 constexpr int D_size = batchStrideD * nBatch;
 
-__global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D)
+__global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D, size_t* cycles)
 {
 
 #if __gfx90a__
@@ -82,13 +83,25 @@ __global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D)
   This kernel is called with a single wavefront in dim3(4, 4, 4) layout
   */
 
+  size_t start, end;
+  size_t &total = cycles[threadIdx.x+threadIdx.y*4+threadIdx.y*4*4];
+  total = 0;
   int a_idx = LDA * threadIdx.x + threadIdx.z + batchStrideA * threadIdx.y;
   int b_idx = threadIdx.x + LDB * threadIdx.z + batchStrideB * threadIdx.y;
 
   const double a = A[a_idx];
   const double b = B[b_idx];
 
-  d = __builtin_amdgcn_mfma_f64_4x4x4f64(a, b, d, 0, 0, 0);
+  // d = __builtin_amdgcn_mfma_f64_4x4x4f64(a, b, d, 0, 0, 0);
+
+  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+               "s_memtime %[start]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
+               "s_memtime %[end]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+               : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
   //                                     ^  ^  ^
   //D(=C)                                |  |  C(=D)
   //            one column from each A---|  |--- one row from each B
@@ -105,6 +118,7 @@ __global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D)
     lanes 8-11  cover the first row of the third D matrix
     lanes 11-15 cover the first row of the fourth D matrix
   */
+  total += end - start;
   const int d_idx =   threadIdx.x                 // consecutive threads cover 4 consecutive columns
                     + threadIdx.y * batchStrideD  // groups of 4 lanes cover a row of each matrix in batch
                     + threadIdx.z * LDD;          // groups of 16 lanes take consecutive rows
@@ -141,14 +155,16 @@ int main() {
 
   // Make and populate device buffers
   double *A_d, *B_d, *D_d;
+  size_t *cycles_d, *cycles = new size_t[4*4*4];
   HIP_CHECK(hipMalloc(&A_d, A_size * sizeof(double)));
   HIP_CHECK(hipMalloc(&B_d, B_size * sizeof(double)));
   HIP_CHECK(hipMalloc(&D_d, D_size * sizeof(double)));
+  HIP_CHECK(hipMalloc(&cycles_d, 4 * 4 * 4 * sizeof(size_t)));
   HIP_CHECK(hipMemcpy(A_d, A_h.data(), A_size * sizeof(double), hipMemcpyHostToDevice));
   HIP_CHECK(hipMemcpy(B_d, B_h.data(), B_size * sizeof(double), hipMemcpyHostToDevice));
 
   // Launch GEMM kernel
-  dgemm_4x4x4_batch<<<1, dim3(4, 4, 4)>>>(A_d, B_d, D_d);
+  dgemm_4x4x4_batch<<<1, dim3(4, 4, 4)>>>(A_d, B_d, D_d, cycles_d);
   HIP_CHECK(hipGetLastError());
 
   // Copy result back to host

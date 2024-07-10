@@ -19,6 +19,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#include <cstddef>
 #include <hip/hip_runtime.h>
 #include <iostream>
 #include <vector>
@@ -50,7 +51,7 @@ constexpr int B_size = K * LDB;
 constexpr int D_size = M * LDD;
 
 
-__global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D)
+__global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D, size_t* cycles)
 {
 
 #if __gfx90a__ || __gfx908__
@@ -59,6 +60,9 @@ __global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D)
   using floatx16 = __attribute__((__vector_size__(16 * sizeof(float)))) float;
   floatx16 d = {0}; // zero out 16 vanilla VGPRs
 
+  size_t start, end;
+  size_t &total = cycles[threadIdx.x+threadIdx.y*32];
+  total = 0;
   /*
   One invocation of v_mfma_f32_32x32x8f16 accumulates the sum of 8 outer products,
   8 columns of A with 8 rows of B, into result matrix D (which is in AccVGPRs).
@@ -84,9 +88,11 @@ __global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D)
   This kernel is called with a single wavefront in dim3(32, 2) layout
   */
 
+#pragma unroll 1
   for(int k = 0; k < 4; ++k){
     float16x4 a;
     float16x4 b;
+#pragma unroll 1
     for(int i = 0; i < 4; ++i){
       const int a_idx =  threadIdx.x * LDA      // consecutive threads cover 32 consecutive rows
                        + i                      // consecutive registers take consecutive columns
@@ -101,7 +107,16 @@ __global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D)
       b[i] = B[b_idx];
     }
 
-    d = __builtin_amdgcn_mfma_f32_32x32x8f16(a, b, d, 0, 0, 0);
+    // d = __builtin_amdgcn_mfma_f32_32x32x8f16(a, b, d, 0, 0, 0);
+
+    asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+                 "s_memtime %[start]\n\t"
+                 "s_waitcnt lgkmcnt(0)\n\t"
+                 "v_mfma_f32_32x32x8f16 %[D] %[A] %[B] %[C]\n\t"
+                 "s_memtime %[end]\n\t"
+                 "s_waitcnt lgkmcnt(0)\n\t"
+                 : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+                 : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
     //                                       ^  ^  ^
     //D(=C)                                  |  |  C(=D)
     //                      8 columns of A---|  |--- 8 rows of B
@@ -119,7 +134,9 @@ __global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D)
     first 32 lanes of d[2] cover row 2 -  last 32 lanes of d[2] cover row 6
     first 32 lanes of d[3] cover row 3 -  last 32 lanes of d[3] cover row 7
   */
+#pragma unroll 1
   for(int j = 0; j < 4; ++j){
+#pragma unroll 1
     for(int i = 0; i < 4; ++i){
       const int d_idx =  threadIdx.x            // consecutive threads cover 32 consecutive columns
                        + i * LDD                // consecutive registers take consecutive rows of 32 floats
@@ -159,15 +176,17 @@ int main(){
 
   // Make and populate device buffers
   float16_t *A_d, *B_d;
+  size_t *cycles_d, *cycles = new size_t[32*2];
   float *D_d;
   HIP_CHECK(hipMalloc(&A_d, A_size * sizeof(float16_t)));
   HIP_CHECK(hipMalloc(&B_d, B_size * sizeof(float16_t)));
   HIP_CHECK(hipMalloc(&D_d, D_size * sizeof(float)));
+  HIP_CHECK(hipMalloc(&cycles_d, 32 * 2 * sizeof(size_t)));
   HIP_CHECK(hipMemcpy(A_d, A_h.data(), A_size * sizeof(float16_t), hipMemcpyHostToDevice));
   HIP_CHECK(hipMemcpy(B_d, B_h.data(), B_size * sizeof(float16_t), hipMemcpyHostToDevice));
 
   // Launch GEMM kernel
-  sgemm_32x32x32<<<1, dim3(32, 2)>>>(A_d, B_d, D_d);
+  sgemm_32x32x32<<<1, dim3(32, 2)>>>(A_d, B_d, D_d, cycles_d);
   HIP_CHECK(hipGetLastError());
 
   // Copy result back to host
@@ -178,6 +197,11 @@ int main(){
             << compute_l2_error(Dref_h, D_h, M, N, LDD, LDD)
             << std::endl;
 
+  for (int i = 0; i < 32 * 2; i++) {
+    std::cout << "Cycles[" << i << "]: " << cycles[i] << std::endl;
+  }
+
+  delete [] cycles;
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));
   HIP_CHECK(hipFree(A_d));

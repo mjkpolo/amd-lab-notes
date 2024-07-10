@@ -19,6 +19,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#include <cstddef>
 #include <hip/hip_runtime.h>
 #include <iostream>
 #include <vector>
@@ -50,7 +51,7 @@ constexpr int B_size = K * LDB;
 constexpr int D_size = M * LDD;
 
 
-__global__ void sgemm_16x16x16(const float16_t* A, const float16_t* B, float* D)
+__global__ void sgemm_16x16x16(const float16_t* A, const float16_t* B, float* D, size_t* cycles)
 {
 
 #if __gfx90a__ || __gfx908__
@@ -59,6 +60,9 @@ __global__ void sgemm_16x16x16(const float16_t* A, const float16_t* B, float* D)
   using floatx4 = __attribute__((__vector_size__(4 * sizeof(float)))) float;
   floatx4 d = {0}; // zero out 4 vanilla VGPRs
 
+  size_t start, end;
+  size_t &total = cycles[threadIdx.x+threadIdx.y*16];
+  total = 0;
   /*
   One invocation of v_mfma_f32_16x16x16f16 accumulates the sum of 16 outer products,
   16 columns of A with 16 rows of B, into result matrix D (which is in AccVGPRs).
@@ -92,6 +96,7 @@ __global__ void sgemm_16x16x16(const float16_t* A, const float16_t* B, float* D)
 
   float16x4 a;
   float16x4 b;
+#pragma unroll 1
   for(int i = 0; i < 4; ++i){
     const int a_idx =  threadIdx.x * LDA      // consecutive threads cover 16 consecutive rows
                      + i                      // consecutive registers take consecutive columns
@@ -104,7 +109,16 @@ __global__ void sgemm_16x16x16(const float16_t* A, const float16_t* B, float* D)
     b[i] = B[b_idx];
   }
 
-  d = __builtin_amdgcn_mfma_f32_16x16x16f16(a, b, d, 0, 0, 0);
+  // d = __builtin_amdgcn_mfma_f32_16x16x16f16(a, b, d, 0, 0, 0);
+
+  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+               "s_memtime %[start]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               "v_mfma_f32_16x16x16f16 %[D] %[A] %[B] %[C]\n\t"
+               "s_memtime %[end]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+               : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
   //                                        ^  ^  ^
   //D(=C)                                   |  |  C(=D)
   //                      16 columns of A---|  |--- 16 rows of B
@@ -120,6 +134,7 @@ __global__ void sgemm_16x16x16(const float16_t* A, const float16_t* B, float* D)
     first 16 lanes of d[2] cover row 2 -  last 16 lanes of d[2] cover row 14
     first 16 lanes of d[3] cover row 3 -  last 16 lanes of d[3] cover row 15
   */
+#pragma unroll 1
   for(int i = 0; i < 4; ++i){
     const int d_idx =  threadIdx.x            // consecutive threads cover 16 consecutive columns
                      + i * LDD                // consecutive registers take consecutive rows of 16 floats
@@ -158,14 +173,16 @@ int main(){
   // Make and populate device buffers
   float16_t *A_d, *B_d;
   float *D_d;
+  size_t *cycles_d, *cycles = new size_t[16*4];
   HIP_CHECK(hipMalloc(&A_d, A_size * sizeof(float16_t)));
   HIP_CHECK(hipMalloc(&B_d, B_size * sizeof(float16_t)));
   HIP_CHECK(hipMalloc(&D_d, D_size * sizeof(float)));
+  HIP_CHECK(hipMalloc(&cycles_d, 16 * 4 * sizeof(size_t)));
   HIP_CHECK(hipMemcpy(A_d, A_h.data(), A_size * sizeof(float16_t), hipMemcpyHostToDevice));
   HIP_CHECK(hipMemcpy(B_d, B_h.data(), B_size * sizeof(float16_t), hipMemcpyHostToDevice));
 
   // Launch GEMM kernel
-  sgemm_16x16x16<<<1, dim3(16, 4)>>>(A_d, B_d, D_d);
+  sgemm_16x16x16<<<1, dim3(16, 4)>>>(A_d, B_d, D_d, cycles_d);
   HIP_CHECK(hipGetLastError());
 
   // Copy result back to host
@@ -176,6 +193,11 @@ int main(){
             << compute_l2_error(Dref_h, D_h, M, N, LDD, LDD)
             << std::endl;
 
+  for (int i = 0; i < 16 * 4; i++) {
+    std::cout << "Cycles[" << i << "]: " << cycles[i] << std::endl;
+  }
+
+  delete [] cycles;
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));
   HIP_CHECK(hipFree(A_d));

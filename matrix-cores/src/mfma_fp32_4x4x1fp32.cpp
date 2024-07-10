@@ -19,6 +19,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#include <cstddef>
 #include <hip/hip_runtime.h>
 #include <iostream>
 #include <vector>
@@ -54,7 +55,7 @@ constexpr int A_size = batchStrideA * nBatch;
 constexpr int B_size = batchStrideB * nBatch;
 constexpr int D_size = batchStrideD * nBatch;
 
-__global__ void sgemm_4x4x4_batch(const float *A, const float *B, float *D)
+__global__ void sgemm_4x4x4_batch(const float *A, const float *B, float *D, size_t* cycles)
 {
 
 #if __gfx90a__ || __gfx908__
@@ -84,16 +85,31 @@ __global__ void sgemm_4x4x4_batch(const float *A, const float *B, float *D)
   int a_idx = LDA * threadIdx.x + batchStrideA * threadIdx.y;
   int b_idx = threadIdx.x + batchStrideB * threadIdx.y;
 
+  size_t start, end;
+  size_t &total = cycles[threadIdx.x+threadIdx.y*4];
+  total = 0;
+
+#pragma unroll 1
   for(int i = 0; i < 4; ++i){
     const float a = A[a_idx];
     const float b = B[b_idx];
 
-    d = __builtin_amdgcn_mfma_f32_4x4x1f32(a, b, d, 0, 0, 0);
+    // d = __builtin_amdgcn_mfma_f32_4x4x1f32(a, b, d, 0, 0, 0);
+
+    asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+                 "s_memtime %[start]\n\t"
+                 "s_waitcnt lgkmcnt(0)\n\t"
+                 "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
+                 "s_memtime %[end]\n\t"
+                 "s_waitcnt lgkmcnt(0)\n\t"
+                 : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+                 : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
     //                                     ^  ^  ^
     //D(=C)                                |  |  C(=D)
     //            one column from each A---|  |--- one row from each B
     a_idx += 1;   // move one column to the right
     b_idx += LDB; // move one row down
+    total += end - start;
   }
 
   /*
@@ -103,6 +119,7 @@ __global__ void sgemm_4x4x4_batch(const float *A, const float *B, float *D)
     d[2] covers row 2
     d[3] covers row 3
   */
+#pragma unroll 1
   for (int i = 0; i < 4; ++i) {
     const int d_idx =   threadIdx.x                 // consecutive threads cover 4 consecutive columns
                       + i * LDD                     // consecutive registers take consecutive rows
@@ -141,25 +158,33 @@ int main() {
 
   // Make and populate device buffers
   float *A_d, *B_d, *D_d;
+  size_t *cycles_d, *cycles = new size_t[64];
   HIP_CHECK(hipMalloc(&A_d, A_size * sizeof(float)));
   HIP_CHECK(hipMalloc(&B_d, B_size * sizeof(float)));
   HIP_CHECK(hipMalloc(&D_d, D_size * sizeof(float)));
+  HIP_CHECK(hipMalloc(&cycles_d, 64 * sizeof(size_t)));
   HIP_CHECK(hipMemcpy(A_d, A_h.data(), A_size * sizeof(float), hipMemcpyHostToDevice));
   HIP_CHECK(hipMemcpy(B_d, B_h.data(), B_size * sizeof(float), hipMemcpyHostToDevice));
 
   // Launch GEMM kernel
-  sgemm_4x4x4_batch<<<1, dim3(4, 16)>>>(A_d, B_d, D_d);
+  sgemm_4x4x4_batch<<<1, dim3(4, 16)>>>(A_d, B_d, D_d, cycles_d);
   HIP_CHECK(hipGetLastError());
 
   // Copy result back to host
   std::vector<float> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float), hipMemcpyDeviceToHost));
+  HIP_CHECK(hipMemcpy(cycles, cycles_d, 64 * sizeof(size_t), hipMemcpyDeviceToHost));
 
   std::cout << "Sum of squared differences of host/device result matrices: "
             << compute_l2_error_batch(Dref_h, D_h, M, N, nBatch,
                                       LDD, LDD, batchStrideD, batchStrideD)
             << std::endl;
 
+  for (int i = 0; i < 64; i++) {
+    std::cout << "Cycles[" << i << "]: " << cycles[i] << std::endl;
+  }
+
+  delete [] cycles;
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));
   HIP_CHECK(hipFree(A_d));
