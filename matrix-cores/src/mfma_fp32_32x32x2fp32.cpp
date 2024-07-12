@@ -76,8 +76,7 @@ __global__ void sgemm_32x32x32(const float* A, const float* B, float* D, size_t*
   */
 
   size_t start, end;
-  size_t &total = cycles[threadIdx.x+threadIdx.y*32];
-  total = 0;
+  size_t &total = cycles[threadIdx.x+threadIdx.y*4];
   int a_idx = LDA * threadIdx.x + threadIdx.y;
   int b_idx = threadIdx.x + LDB * threadIdx.y;
 
@@ -173,6 +172,7 @@ if (!gpuArchCheck("gfx90a") && !gpuArchCheck("gfx908")) {
   // Copy result back to host
   std::vector<float> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float), hipMemcpyDeviceToHost));
+  HIP_CHECK(hipMemcpy(cycles, cycles_d, 64 * sizeof(size_t), hipMemcpyDeviceToHost));
 
   std::cout << "Sum of squared differences of host/device result matrices: "
             << compute_l2_error(Dref_h, D_h, M, N, LDD, LDD)

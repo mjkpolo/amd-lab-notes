@@ -194,6 +194,7 @@ int main() {
   // Copy result back to host
   std::vector<float> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float), hipMemcpyDeviceToHost));
+  HIP_CHECK(hipMemcpy(cycles, cycles_d, 64 * sizeof(size_t), hipMemcpyDeviceToHost));
 
   std::cout << "Sum of squared differences of host/device result matrices: "
             << compute_l2_error_batch(Dref_h, D_h, M, N, nBatch,

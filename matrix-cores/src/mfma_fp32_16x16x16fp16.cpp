@@ -119,6 +119,7 @@ __global__ void sgemm_16x16x16(const float16_t* A, const float16_t* B, float* D,
                "s_waitcnt lgkmcnt(0)\n\t"
                : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
                : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
+  total += end - start;
   //                                        ^  ^  ^
   //D(=C)                                   |  |  C(=D)
   //                      16 columns of A---|  |--- 16 rows of B
@@ -188,6 +189,7 @@ int main(){
   // Copy result back to host
   std::vector<float> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float), hipMemcpyDeviceToHost));
+  HIP_CHECK(hipMemcpy(cycles, cycles_d, 64 * sizeof(size_t), hipMemcpyDeviceToHost));
 
   std::cout << "Sum of squared differences of host/device result matrices: "
             << compute_l2_error(Dref_h, D_h, M, N, LDD, LDD)

@@ -120,6 +120,7 @@ __global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D,
     //                                       ^  ^  ^
     //D(=C)                                  |  |  C(=D)
     //                      8 columns of A---|  |--- 8 rows of B
+    total += end - start;
   }
 
   /*
@@ -192,6 +193,7 @@ int main(){
   // Copy result back to host
   std::vector<float> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float), hipMemcpyDeviceToHost));
+  HIP_CHECK(hipMemcpy(cycles, cycles_d, 64 * sizeof(size_t), hipMemcpyDeviceToHost));
 
   std::cout << "Sum of squared differences of host/device result matrices: "
             << compute_l2_error(Dref_h, D_h, M, N, LDD, LDD)

@@ -100,6 +100,7 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D, size
     //                    two columns of A---|  |--- two rows of B
     a_idx += 4;     // move two columns to the right
     b_idx += 4*LDB; // move two rows down
+    total += end - start;
   }
 
   /*
@@ -157,6 +158,7 @@ if (!gpuArchCheck("gfx90a")) {
   // Copy result back to host
   std::vector<double> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(double), hipMemcpyDeviceToHost));
+  HIP_CHECK(hipMemcpy(cycles, cycles_d, 64 * sizeof(size_t), hipMemcpyDeviceToHost));
 
   std::cout << "Sum of squared differences of host/device result matrices: "
             << compute_l2_error(Dref_h, D_h, M, N, LDD, LDD)
