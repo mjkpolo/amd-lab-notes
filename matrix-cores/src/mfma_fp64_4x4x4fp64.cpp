@@ -170,12 +170,18 @@ int main() {
   // Copy result back to host
   std::vector<double> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(double), hipMemcpyDeviceToHost));
+  HIP_CHECK(hipMemcpy(cycles, cycles_d, 64 * sizeof(size_t), hipMemcpyDeviceToHost));
 
   std::cout << "Sum of squared differences of host/device result matrices: "
             << compute_l2_error_batch(Dref_h, D_h, M, N, nBatch,
                                       LDD, LDD, batchStrideD, batchStrideD)
             << std::endl;
 
+  for (int i = 0; i < 64; i++) {
+    std::cout << "Cycles[" << i << "]: " << cycles[i] << std::endl;
+  }
+
+  delete [] cycles;
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));
   HIP_CHECK(hipFree(A_d));
