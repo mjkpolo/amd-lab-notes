@@ -3,7 +3,7 @@
 import subprocess
 from pathlib import Path
 
-native = False
+native = True
 
 
 def runcmd(*args):
@@ -47,16 +47,19 @@ def main():
                   if file.suffix == '.cpp'))
     for bin in bins:
         print(f"running {bin}:")
-        rundocker("../gem5/build/VEGA_X86/gem5.opt",
-                  "configs/example/gpufs/mi200.py",
-                  "-a",
-                  str(bench_dir/bin),
-                  "--kernel",
-                  str(resources/"vmlinux-gpu-ml"),
-                  "--disk-image",
-                  str(resources/"disk-image"/"x86-ubuntu-gpu-ml"))
-        runcmd("cp", "m5out/system.pc.com_1.device",
-               f"{bin}_system.pc.com_1.device")
+        if native:
+            runcmd(bench_dir/bin)
+        else:
+            rundocker("../gem5/build/VEGA_X86/gem5.opt",
+                      "configs/example/gpufs/mi200.py",
+                      "-a",
+                      str(bench_dir/bin),
+                      "--kernel",
+                      str(resources/"vmlinux-gpu-ml"),
+                      "--disk-image",
+                      str(resources/"disk-image"/"x86-ubuntu-gpu-ml"))
+            runcmd("cp", "m5out/system.pc.com_1.device",
+                   f"{bin}_system.pc.com_1.device")
     return 0
 
 
