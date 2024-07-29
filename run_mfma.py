@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from os import chdir, getcwd
 
-native = True
+native = False
 
 
 def runcmd(*args):
@@ -31,7 +31,7 @@ def rundocker(*args):
 container_name = "mi200-container"
 dockerfile_dir = "gem5/util/dockerfiles/gpu-fs"
 bench_dir = Path("amd-lab-notes/matrix-cores")
-resources = Path("gem5-resources/src/x86-ubuntu-gpu-ml")
+resources = Path("gem5/gem5-resources/src/x86-ubuntu-gpu-ml")
 
 
 def build_docker():
@@ -62,7 +62,7 @@ def main():
                       str(resources/"vmlinux-gpu-ml"),
                       "--disk-image",
                       str(resources/"disk-image"/"x86-ubuntu-gpu-ml"))
-            runcmd("cp", "m5out/system.pc.com_1.device",
+            runcmd("cp", "gem5/m5out/system.pc.com_1.device",
                    f"{bin}_system.pc.com_1.device")
     return 0
 
