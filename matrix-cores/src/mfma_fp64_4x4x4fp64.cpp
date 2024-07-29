@@ -84,7 +84,7 @@ __global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D, s
   */
 
   size_t start, end;
-  size_t &total = cycles[threadIdx.x+threadIdx.y*4+threadIdx.y*4*4];
+  size_t &total = cycles[threadIdx.x+threadIdx.y*4+threadIdx.z*4*4];
   total = 0;
   int a_idx = LDA * threadIdx.x + threadIdx.z + batchStrideA * threadIdx.y;
   int b_idx = threadIdx.x + LDB * threadIdx.z + batchStrideB * threadIdx.y;
