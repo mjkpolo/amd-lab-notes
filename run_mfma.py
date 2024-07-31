@@ -62,7 +62,7 @@ def main():
                       str(resources/"vmlinux-gpu-ml"),
                       "--disk-image",
                       str(resources/"disk-image"/"x86-ubuntu-gpu-ml"))
-            runcmd("cp", "gem5/m5out/system.pc.com_1.device",
+            runcmd("cp", "m5out/system.pc.com_1.device",
                    f"{bin}_system.pc.com_1.device")
     return 0
 
