@@ -62,7 +62,7 @@ INCLUDES=-I${INCLUDE_DIR}
 DEFINES=
 
 #.cpp compilation flags
-CXXFLAGS=-O3 --offload-arch=gfx90a
+CXXFLAGS=-O3 --offload-arch=gfx90a --save-temps
 
 #libraries
 LIBS=
