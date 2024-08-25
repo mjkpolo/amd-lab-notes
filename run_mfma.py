@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 
 import subprocess
+from subprocess import PIPE
 from pathlib import Path
 from os import chdir, getcwd
 
-native = False
+native = True
 
 
 def runcmd(*args):
     pd = getcwd()
     chdir('..')
-    subprocess.Popen(args).communicate()
+    stdout, stderr = subprocess.Popen(args, stdout=PIPE, stderr=PIPE).communicate()
+    print(f"STDOUT:\n{stdout.decode('utf-8')}\n", flush=True)
+    print(f"STDERR:\n{stderr.decode('utf-8')}\n", flush=True)
     chdir(pd)
 
 
@@ -50,7 +53,7 @@ def main():
     bins = (tuple(file.stem for file in ('..' / bench_dir / 'src').iterdir()
                   if file.suffix == '.cpp'))
     for bin in bins:
-        print(f"running {bin}:")
+        print(f"running {bin}:", flush=True)
         if native:
             runcmd(bench_dir/bin)
         else:
