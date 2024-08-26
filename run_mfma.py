@@ -5,13 +5,18 @@ from subprocess import PIPE
 from pathlib import Path
 from os import chdir, getcwd
 
-native = True
+native = False
+
+
+args = "-n 3 --num-compute-units=60 --cu-per-sa=15 --num-gpu-complex=4 --dgpu --gfx-version=gfx900 --reg-alloc-policy=dynamic --num-tccs=8 --bw-scalor=8 --num-dirs=64 --mem-size=16GB --vreg-file-size=16384 --sreg-file-size=800 --tcc-size=4MB --mem-type=HBM_2000_4H_1x64 --vrf_lm_bus_latency=63 --gpu-clock=1801MHz --max-coalesces-per-cycle=10 --max-cu-tokens=160 --mandatory_queue_latency=1 --mem-req-latency=69 --mem-resp-latency=69 --scalar-mem-req-latency=28 --sqc-size=16kB --TCC_latency=121 --tcc-assoc=16 --tcc-tag-access-latency=1 --tcc-data-access-latency=2 --atomic-alu-latency=58 --tcc-num-atomic-alus=256 --glc-atomic-latency=137 --memtime-latency=41"
 
 
 def runcmd(*args):
+    print(f"running {' '.join(args)}:", flush=True)
     pd = getcwd()
     chdir('..')
-    stdout, stderr = subprocess.Popen(args, stdout=PIPE, stderr=PIPE).communicate()
+    stdout, stderr = subprocess.Popen(
+        args, stdout=PIPE, stderr=PIPE).communicate()
     print(f"STDOUT:\n{stdout.decode('utf-8')}\n", flush=True)
     print(f"STDERR:\n{stderr.decode('utf-8')}\n", flush=True)
     chdir(pd)
@@ -53,12 +58,12 @@ def main():
     bins = (tuple(file.stem for file in ('..' / bench_dir / 'src').iterdir()
                   if file.suffix == '.cpp'))
     for bin in bins:
-        print(f"running {bin}:", flush=True)
         if native:
             runcmd(bench_dir/bin)
         else:
             rundocker("gem5/build/VEGA_X86/gem5.opt",
                       "gem5/configs/example/gpufs/mi200.py",
+                      args,
                       "-a",
                       str(bench_dir/bin),
                       "--kernel",
