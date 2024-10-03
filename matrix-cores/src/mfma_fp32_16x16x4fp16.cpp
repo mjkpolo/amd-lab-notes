@@ -59,7 +59,6 @@ constexpr int D_size = batchStrideD * nBatch;
 __global__ void sgemm_16x16x16_batch(const float16_t *A, const float16_t *B, float *D, size_t* cycles)
 {
 
-#if __gfx90a__ || __gfx908__
   // This kernel computes a batch of four 16x16x16 matrix multiplications using a single wavefront.
   using float16x4 = __attribute__((__vector_size__(4 * sizeof(float16_t)))) float16_t;
   using float16 = __attribute__((__vector_size__(16 * sizeof(float)))) float;
@@ -129,6 +128,7 @@ __global__ void sgemm_16x16x16_batch(const float16_t *A, const float16_t *B, flo
                  "s_memtime %[start]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
                  "v_mfma_f32_16x16x4f16 %[D] %[A] %[B] %[C]\n\t"
+                 "v_mfma_f32_16x16x4f16 %[D] %[A] %[B] %[C]\n\t"
                  "s_memtime %[end]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
                  : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
@@ -166,16 +166,15 @@ __global__ void sgemm_16x16x16_batch(const float16_t *A, const float16_t *B, flo
       D[d_idx] = d[i + b * 4];
     }
   }
-#endif
 }
 
 
 int main() {
-  if (!gpuArchCheck("gfx90a") && !gpuArchCheck("gfx908")) {
-    std::cout << "mfma_f32_16x16x4f16 instruction only available on gfx908 or later."
-              << std::endl;
-    exit(-1);
-  }
+  // if (!gpuArchCheck("gfx90a") && !gpuArchCheck("gfx908")) {
+  //   std::cout << "mfma_f32_16x16x4f16 instruction only available on gfx908 or later."
+  //             << std::endl;
+  //   exit(-1);
+  // }
 
   std::mt19937 gen(0);
   std::uniform_real_distribution<float> dist(-1, 1);

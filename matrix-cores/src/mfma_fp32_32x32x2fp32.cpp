@@ -54,7 +54,6 @@ constexpr int D_size = M * LDD;
 __global__ void sgemm_32x32x32(const float* A, const float* B, float* D, size_t* cycles)
 {
 
-#if __gfx90a__ || __gfx908__
   // This kernel computes a 32x32x32 matrix multiplication using a single wavefront.
   using float16 = __attribute__((__vector_size__(16 * sizeof(float)))) float;
   float16 d = {0}; // zero out 16 vanilla VGPRs
@@ -76,7 +75,7 @@ __global__ void sgemm_32x32x32(const float* A, const float* B, float* D, size_t*
   */
 
   size_t start, end;
-  size_t &total = cycles[threadIdx.x+threadIdx.y*4];
+  size_t &total = cycles[threadIdx.x+threadIdx.y*32];
   int a_idx = LDA * threadIdx.x + threadIdx.y;
   int b_idx = threadIdx.x + LDB * threadIdx.y;
 
@@ -90,6 +89,7 @@ __global__ void sgemm_32x32x32(const float* A, const float* B, float* D, size_t*
     asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
                  "s_memtime %[start]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
+                 "v_mfma_f32_32x32x2f32 %[D] %[A] %[B] %[C]\n\t"
                  "v_mfma_f32_32x32x2f32 %[D] %[A] %[B] %[C]\n\t"
                  "s_memtime %[end]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
@@ -127,16 +127,15 @@ __global__ void sgemm_32x32x32(const float* A, const float* B, float* D, size_t*
       D[d_idx] = d[i + 4 * j];
     }
   }
-#endif
 }
 
 
 int main(){
-if (!gpuArchCheck("gfx90a") && !gpuArchCheck("gfx908")) {
-    std::cout << "mfma_f32_32x32x2f32 instruction only available on gfx908 or later."
-              << std::endl;
-    exit(-1);
-  }
+// if (!gpuArchCheck("gfx90a") && !gpuArchCheck("gfx908")) {
+//     std::cout << "mfma_f32_32x32x2f32 instruction only available on gfx908 or later."
+//               << std::endl;
+//     exit(-1);
+//   }
 
   std::mt19937 gen(0);
   std::uniform_real_distribution<float> dist(-1, 1);

@@ -53,7 +53,6 @@ constexpr int D_size = M * LDD;
 __global__ void dgemm_16x16x16(const double* A, const double* B, double* D, size_t* cycles)
 {
 
-#if __gfx90a__
   // This kernel computes a 16x16x16 matrix multiplication using a single wavefront.
   using double4 = __attribute__((__vector_size__(4 * sizeof(double)))) double;
   double4 d = {0}; // zero out 4 * 2 vanilla VGPRs
@@ -91,6 +90,7 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D, size
                  "s_memtime %[start]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
                  "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
+                 "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
                  "s_memtime %[end]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
                  : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
@@ -114,15 +114,14 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D, size
                       + LDD * threadIdx.y;   // groups of 16 lanes cover consecutive rows
     D[d_idx] = d[i];
   }
-#endif
 }
 
 int main(){
-if (!gpuArchCheck("gfx90a")) {
-    std::cout << "mfma_f64_16x16x4f64 instruction only available on gfx90a or later."
-              << std::endl;
-    exit(-1);
-  }
+// if (!gpuArchCheck("gfx90a")) {
+//     std::cout << "mfma_f64_16x16x4f64 instruction only available on gfx90a or later."
+//               << std::endl;
+//     exit(-1);
+//   }
 
   std::mt19937 gen(0);
   std::uniform_real_distribution<double> dist(-1, 1);

@@ -58,7 +58,6 @@ constexpr int D_size = batchStrideD * nBatch;
 __global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D, size_t* cycles)
 {
 
-#if __gfx90a__
   // This kernel computes a batch of four 4x4x4 matrix multiplications using a single wavefront.
   double d = {0}; // zero out 1 * 2 vanilla VGPRs
 
@@ -98,6 +97,7 @@ __global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D, s
                "s_memtime %[start]\n\t"
                "s_waitcnt lgkmcnt(0)\n\t"
                "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
+               "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
                "s_memtime %[end]\n\t"
                "s_waitcnt lgkmcnt(0)\n\t"
                : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
@@ -123,16 +123,15 @@ __global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D, s
                     + threadIdx.y * batchStrideD  // groups of 4 lanes cover a row of each matrix in batch
                     + threadIdx.z * LDD;          // groups of 16 lanes take consecutive rows
   D[d_idx] = d;
-#endif
 }
 
 
 int main() {
-  if (!gpuArchCheck("gfx90a")) {
-    std::cout << "mfma_f64_4x4x4f64 instruction only available on gfx90a or later."
-              << std::endl;
-    exit(-1);
-  }
+  // if (!gpuArchCheck("gfx90a")) {
+  //   std::cout << "mfma_f64_4x4x4f64 instruction only available on gfx90a or later."
+  //             << std::endl;
+  //   exit(-1);
+  // }
 
   std::mt19937 gen(0);
   std::uniform_real_distribution<double> dist(-1, 1);
