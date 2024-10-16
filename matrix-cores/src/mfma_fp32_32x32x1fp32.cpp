@@ -100,6 +100,8 @@ __global__ void sgemm_32x32x32_batch(const float* A, const float* B, float* D, s
                  "s_waitcnt lgkmcnt(0)\n\t"
                  "v_mfma_f32_32x32x1f32 %[D] %[A] %[B] %[C]\n\t"
                  "v_mfma_f32_32x32x1f32 %[D] %[A] %[B] %[C]\n\t"
+                 "v_mfma_f32_32x32x1f32 %[D] %[A] %[B] %[C]\n\t"
+                 "v_mfma_f32_32x32x1f32 %[D] %[A] %[B] %[C]\n\t"
                  "s_memtime %[end]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
                  : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)

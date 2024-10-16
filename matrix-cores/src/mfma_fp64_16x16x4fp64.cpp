@@ -91,6 +91,8 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D, size
                  "s_waitcnt lgkmcnt(0)\n\t"
                  "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
                  "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
+                 "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
+                 "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
                  "s_memtime %[end]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
                  : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)

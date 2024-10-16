@@ -92,6 +92,8 @@ __global__ void sgemm_16x16x16(const float* A, const float* B, float* D, size_t*
                  "s_waitcnt lgkmcnt(0)\n\t"
                  "v_mfma_f32_16x16x4f32 %[D] %[A] %[B] %[C]\n\t"
                  "v_mfma_f32_16x16x4f32 %[D] %[A] %[B] %[C]\n\t"
+                 "v_mfma_f32_16x16x4f32 %[D] %[A] %[B] %[C]\n\t"
+                 "v_mfma_f32_16x16x4f32 %[D] %[A] %[B] %[C]\n\t"
                  "s_memtime %[end]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
                  : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)

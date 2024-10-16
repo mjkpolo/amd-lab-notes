@@ -98,6 +98,8 @@ __global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D, s
                "s_waitcnt lgkmcnt(0)\n\t"
                "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
                "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
+               "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
+               "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
                "s_memtime %[end]\n\t"
                "s_waitcnt lgkmcnt(0)\n\t"
                : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)

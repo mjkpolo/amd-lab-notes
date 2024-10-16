@@ -114,6 +114,8 @@ __global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D, siz
                "s_waitcnt lgkmcnt(0)\n\t"
                "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
                "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
+               "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
+               "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
                "s_memtime %[end]\n\t"
                "s_waitcnt lgkmcnt(0)\n\t"
                : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
