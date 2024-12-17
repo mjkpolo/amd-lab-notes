@@ -65,6 +65,10 @@ __global__ void sgemm_4x4x4_batch(const float16_t *A, const float16_t *B, float 
   size_t start, end;
   size_t &total = cycles[threadIdx.x+threadIdx.y*4];
   total = 0;
+  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+               "s_memtime %[start]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [start] "=r"(start));
 
   /*
   One invocation of v_mfma_f32_4x4x4f16 accumulates 16 batches of 4 outer products,
@@ -109,23 +113,24 @@ __global__ void sgemm_4x4x4_batch(const float16_t *A, const float16_t *B, float 
     b[i] = B[b_idx];
   }
 
-  // d = __builtin_amdgcn_mfma_f32_4x4x4f16(a, b, d, 0, 0, 0);
+  d = __builtin_amdgcn_mfma_f32_4x4x4f16(a, b, d, 0, 0, 0);
 
-  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
-               "s_memtime %[start]\n\t"
-               "s_waitcnt lgkmcnt(0)\n\t"
-               "v_mfma_f32_4x4x4f16 %[D] %[A] %[B] %[C]\n\t"
-               "v_mfma_f32_4x4x4f16 %[D] %[A] %[B] %[C]\n\t"
-               "v_mfma_f32_4x4x4f16 %[D] %[A] %[B] %[C]\n\t"
-               "v_mfma_f32_4x4x4f16 %[D] %[A] %[B] %[C]\n\t"
-               "s_memtime %[end]\n\t"
-               "s_waitcnt lgkmcnt(0)\n\t"
-               : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
-               : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
+  // asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+  //              "s_memtime %[start]\n\t"
+  //              "s_waitcnt lgkmcnt(0)\n\t"
+  //              "v_mfma_f32_4x4x4f16 %[D] %[A] %[B] %[C]\n\t"
+  //              "v_mfma_f32_4x4x4f16 %[D] %[A] %[B] %[C]\n\t"
+  //              "v_mfma_f32_4x4x4f16 %[D] %[A] %[B] %[C]\n\t"
+  //              "v_mfma_f32_4x4x4f16 %[D] %[A] %[B] %[C]\n\t"
+  //              "v_mfma_f32_4x4x4f16 %[D] %[A] %[B] %[C]\n\t"
+  //              "s_memtime %[end]\n\t"
+  //              "s_waitcnt lgkmcnt(0)\n\t"
+  //              : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+  //              : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
   //                                     ^  ^  ^
   //D(=C)                                |  |  C(=D)
   //               4 columns of each A---|  |--- 4 rows of each B
-  total += end - start;
+  // total += end - start;
 
   /*
   Matrix D is a batch of 16 4 x 4 matrices that are stored in 4 AccVGPRs as follows:
@@ -141,6 +146,10 @@ __global__ void sgemm_4x4x4_batch(const float16_t *A, const float16_t *B, float 
                       + threadIdx.y * batchStrideD; // groups of 4 lanes cover each matrix in batch
     D[d_idx] = d[i];
   }
+  asm volatile("s_memtime %[end]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [end] "=r"(end));
+  total = end - start;
 }
 
 

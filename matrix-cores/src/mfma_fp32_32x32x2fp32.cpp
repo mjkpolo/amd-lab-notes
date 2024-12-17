@@ -91,8 +91,9 @@ __global__ void sgemm_32x32x32(const float* A, const float* B, float* D, size_t*
                  "s_waitcnt lgkmcnt(0)\n\t"
                  "v_mfma_f32_32x32x2f32 %[D] %[A] %[B] %[C]\n\t"
                  "v_mfma_f32_32x32x2f32 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f32_32x32x2f32 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f32_32x32x2f32 %[D] %[A] %[B] %[C]\n\t"
+                 // "v_mfma_f32_32x32x2f32 %[D] %[A] %[B] %[C]\n\t"
+                 // "v_mfma_f32_32x32x2f32 %[D] %[A] %[B] %[C]\n\t"
+                 // "v_mfma_f32_32x32x2f32 %[D] %[A] %[B] %[C]\n\t"
                  "s_memtime %[end]\n\t"
                  "s_waitcnt lgkmcnt(0)\n\t"
                  : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
@@ -102,7 +103,7 @@ __global__ void sgemm_32x32x32(const float* A, const float* B, float* D, size_t*
     //                    two columns of A---|  |--- two rows of B
     a_idx += 2;     // move two columns to the right
     b_idx += 2*LDB; // move two rows down
-    total += end - start;
+    // total += end - start;
   }
 
   /*

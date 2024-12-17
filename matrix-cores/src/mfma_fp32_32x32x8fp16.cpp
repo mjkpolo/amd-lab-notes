@@ -62,6 +62,10 @@ __global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D,
   size_t start, end;
   size_t &total = cycles[threadIdx.x+threadIdx.y*32];
   total = 0;
+  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+               "s_memtime %[start]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [start] "=r"(start));
   /*
   One invocation of v_mfma_f32_32x32x8f16 accumulates the sum of 8 outer products,
   8 columns of A with 8 rows of B, into result matrix D (which is in AccVGPRs).
@@ -106,23 +110,23 @@ __global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D,
       b[i] = B[b_idx];
     }
 
-    // d = __builtin_amdgcn_mfma_f32_32x32x8f16(a, b, d, 0, 0, 0);
+    d = __builtin_amdgcn_mfma_f32_32x32x8f16(a, b, d, 0, 0, 0);
 
-    asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
-                 "s_memtime %[start]\n\t"
-                 "s_waitcnt lgkmcnt(0)\n\t"
-                 "v_mfma_f32_32x32x8f16 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f32_32x32x8f16 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f32_32x32x8f16 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f32_32x32x8f16 %[D] %[A] %[B] %[C]\n\t"
-                 "s_memtime %[end]\n\t"
-                 "s_waitcnt lgkmcnt(0)\n\t"
-                 : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
-                 : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
+    // asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+    //              "s_memtime %[start]\n\t"
+    //              "s_waitcnt lgkmcnt(0)\n\t"
+    //              "v_mfma_f32_32x32x8f16 %[D] %[A] %[B] %[C]\n\t"
+    //              "v_mfma_f32_32x32x8f16 %[D] %[A] %[B] %[C]\n\t"
+    //              // "v_mfma_f32_32x32x8f16 %[D] %[A] %[B] %[C]\n\t"
+    //              // "v_mfma_f32_32x32x8f16 %[D] %[A] %[B] %[C]\n\t"
+    //              "s_memtime %[end]\n\t"
+    //              "s_waitcnt lgkmcnt(0)\n\t"
+    //              : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+    //              : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
     //                                       ^  ^  ^
     //D(=C)                                  |  |  C(=D)
     //                      8 columns of A---|  |--- 8 rows of B
-    total += end - start;
+    // total += end - start;
   }
 
   /*
@@ -149,6 +153,10 @@ __global__ void sgemm_32x32x32(const float16_t* A, const float16_t* B, float* D,
       D[d_idx] = d[i + 4 * j];
     }
   }
+  asm volatile("s_memtime %[end]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [end] "=r"(end));
+  total = end - start;
 }
 
 

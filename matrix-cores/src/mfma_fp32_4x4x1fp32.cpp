@@ -87,31 +87,36 @@ __global__ void sgemm_4x4x4_batch(const float *A, const float *B, float *D, size
   size_t start, end;
   size_t &total = cycles[threadIdx.x+threadIdx.y*4];
   total = 0;
+  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+               "s_memtime %[start]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [start] "=r"(start));
 
 #pragma unroll 1
   for(int i = 0; i < 4; ++i){
     const float a = A[a_idx];
     const float b = B[b_idx];
 
-    // d = __builtin_amdgcn_mfma_f32_4x4x1f32(a, b, d, 0, 0, 0);
+    d = __builtin_amdgcn_mfma_f32_4x4x1f32(a, b, d, 0, 0, 0);
 
-    asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
-                 "s_memtime %[start]\n\t"
-                 "s_waitcnt lgkmcnt(0)\n\t"
-                 "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
-                 "s_memtime %[end]\n\t"
-                 "s_waitcnt lgkmcnt(0)\n\t"
-                 : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
-                 : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
+    // asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+    //              "s_memtime %[start]\n\t"
+    //              "s_waitcnt lgkmcnt(0)\n\t"
+    //              "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
+    //              "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
+    //              // "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
+    //              // "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
+    //              // "v_mfma_f32_4x4x1f32 %[D] %[A] %[B] %[C]\n\t"
+    //              "s_memtime %[end]\n\t"
+    //              "s_waitcnt lgkmcnt(0)\n\t"
+    //              : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+    //              : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
     //                                     ^  ^  ^
     //D(=C)                                |  |  C(=D)
     //            one column from each A---|  |--- one row from each B
     a_idx += 1;   // move one column to the right
     b_idx += LDB; // move one row down
-    total += end - start;
+    // total += end - start;
   }
 
   /*
@@ -128,6 +133,10 @@ __global__ void sgemm_4x4x4_batch(const float *A, const float *B, float *D, size
                       + threadIdx.y * batchStrideD; // groups of 4 lanes cover each matrix in batch
     D[d_idx] = d[i];
   }
+  asm volatile("s_memtime %[end]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [end] "=r"(end));
+  total = end - start;
 }
 
 

@@ -91,6 +91,10 @@ __global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D, siz
   size_t start, end;
   size_t &total = cycles[threadIdx.x+threadIdx.y*16];
   total = 0;
+  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+               "s_memtime %[start]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [start] "=r"(start));
 
   int8_t a[4];
   int8_t b[4];
@@ -107,19 +111,20 @@ __global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D, siz
     b[i] = B[b_idx];
   }
 
-  // d = __builtin_amdgcn_mfma_i32_16x16x16i8(*reinterpret_cast<int32_t*>(a), *reinterpret_cast<int32_t*>(b), d, 0, 0, 0);
+  d = __builtin_amdgcn_mfma_i32_16x16x16i8(*reinterpret_cast<int32_t*>(a), *reinterpret_cast<int32_t*>(b), d, 0, 0, 0);
 
-  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
-               "s_memtime %[start]\n\t"
-               "s_waitcnt lgkmcnt(0)\n\t"
-               "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
-               "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
-               "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
-               "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
-               "s_memtime %[end]\n\t"
-               "s_waitcnt lgkmcnt(0)\n\t"
-               : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
-               : [A] "v"(*reinterpret_cast<int32_t*>(a)), [B] "v"(*reinterpret_cast<int32_t*>(b)), [C] "v"(d)); // just change "v" to "a"
+  // asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+  //              "s_memtime %[start]\n\t"
+  //              "s_waitcnt lgkmcnt(0)\n\t"
+  //              "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
+  //              "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
+  //              // "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
+  //              // "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
+  //              // "v_mfma_i32_16x16x16i8 %[D] %[A] %[B] %[C]\n\t"
+  //              "s_memtime %[end]\n\t"
+  //              "s_waitcnt lgkmcnt(0)\n\t"
+  //              : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+  //              : [A] "v"(*reinterpret_cast<int32_t*>(a)), [B] "v"(*reinterpret_cast<int32_t*>(b)), [C] "v"(d)); // just change "v" to "a"
   //                                        ^  ^  ^
   //D(=C)                                   |  |  C(=D)
   //                      16 columns of A---|  |--- 16 rows of B
@@ -135,7 +140,7 @@ __global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D, siz
     first 16 lanes of d[2] cover row 2 -  last 16 lanes of d[2] cover row 14
     first 16 lanes of d[3] cover row 3 -  last 16 lanes of d[3] cover row 15
   */
-  total += end - start;
+  // total += end - start;
 
 #pragma unroll 1
   for(int i = 0; i < 4; ++i){
@@ -145,6 +150,10 @@ __global__ void igemm_16x16x16(const int8_t* A, const int8_t* B, int32_t* D, siz
 
     D[d_idx] = d[i];
   }
+  asm volatile("s_memtime %[end]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [end] "=r"(end));
+  total = end - start;
 }
 
 

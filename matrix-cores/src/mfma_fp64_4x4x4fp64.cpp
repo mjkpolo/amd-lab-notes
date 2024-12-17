@@ -85,25 +85,30 @@ __global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D, s
   size_t start, end;
   size_t &total = cycles[threadIdx.x+threadIdx.y*4+threadIdx.z*4*4];
   total = 0;
+  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+               "s_memtime %[start]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [start] "=r"(start));
   int a_idx = LDA * threadIdx.x + threadIdx.z + batchStrideA * threadIdx.y;
   int b_idx = threadIdx.x + LDB * threadIdx.z + batchStrideB * threadIdx.y;
 
   const double a = A[a_idx];
   const double b = B[b_idx];
 
-  // d = __builtin_amdgcn_mfma_f64_4x4x4f64(a, b, d, 0, 0, 0);
+  d = __builtin_amdgcn_mfma_f64_4x4x4f64(a, b, d, 0, 0, 0);
 
-  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
-               "s_memtime %[start]\n\t"
-               "s_waitcnt lgkmcnt(0)\n\t"
-               "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
-               "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
-               "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
-               "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
-               "s_memtime %[end]\n\t"
-               "s_waitcnt lgkmcnt(0)\n\t"
-               : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
-               : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
+  // asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+  //              "s_memtime %[start]\n\t"
+  //              "s_waitcnt lgkmcnt(0)\n\t"
+  //              "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
+  //              "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
+  //              "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
+  //              "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
+  //              "v_mfma_f64_4x4x4f64 %[D] %[A] %[B] %[C]\n\t"
+  //              "s_memtime %[end]\n\t"
+  //              "s_waitcnt lgkmcnt(0)\n\t"
+  //              : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+  //              : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
   //                                     ^  ^  ^
   //D(=C)                                |  |  C(=D)
   //            one column from each A---|  |--- one row from each B
@@ -120,11 +125,15 @@ __global__ void dgemm_4x4x4_batch(const double *A, const double *B, double *D, s
     lanes 8-11  cover the first row of the third D matrix
     lanes 11-15 cover the first row of the fourth D matrix
   */
-  total += end - start;
+  // total += end - start;
   const int d_idx =   threadIdx.x                 // consecutive threads cover 4 consecutive columns
                     + threadIdx.y * batchStrideD  // groups of 4 lanes cover a row of each matrix in batch
                     + threadIdx.z * LDD;          // groups of 16 lanes take consecutive rows
   D[d_idx] = d;
+  asm volatile("s_memtime %[end]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [end] "=r"(end));
+  total = end - start;
 }
 
 

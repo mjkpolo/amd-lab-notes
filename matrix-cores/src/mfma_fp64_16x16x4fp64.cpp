@@ -60,6 +60,10 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D, size
   size_t start, end;
   size_t &total = cycles[threadIdx.x+threadIdx.y*16];
   total = 0;
+  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+               "s_memtime %[start]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [start] "=r"(start));
   /*
   One invocation of v_mfma_f64_16x16x4f64 accumulates the sum of four outer products,
   four columns of A with four rows of B, into result matrix D (which is in AccVGPRs).
@@ -84,25 +88,25 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D, size
     const double a = A[a_idx];
     const double b = B[b_idx];
 
-    // d = __builtin_amdgcn_mfma_f64_16x16x4f64(a, b, d, 0, 0, 0);
+    d = __builtin_amdgcn_mfma_f64_16x16x4f64(a, b, d, 0, 0, 0);
 
-    asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
-                 "s_memtime %[start]\n\t"
-                 "s_waitcnt lgkmcnt(0)\n\t"
-                 "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
-                 "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
-                 "s_memtime %[end]\n\t"
-                 "s_waitcnt lgkmcnt(0)\n\t"
-                 : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
-                 : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
+    // asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+    //              "s_memtime %[start]\n\t"
+    //              "s_waitcnt lgkmcnt(0)\n\t"
+    //              "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
+    //              "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
+    //              // "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
+    //              // "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
+    //              // "v_mfma_f64_16x16x4f64 %[D] %[A] %[B] %[C]\n\t"
+    //              "s_memtime %[end]\n\t"
+    //              "s_waitcnt lgkmcnt(0)\n\t"
+    //              : [start] "=r"(start), [end] "=r"(end), [D] "=v"(d)
+    //              : [A] "v"(a), [B] "v"(b), [C] "v"(d)); // just change "v" to "a"
     //                                       ^  ^  ^
     //D(=C)                                  |  |  C(=D)
     //                    two columns of A---|  |--- two rows of B
     a_idx += 4;     // move two columns to the right
     b_idx += 4*LDB; // move two rows down
-    total += end - start;
   }
 
   /*
@@ -116,6 +120,10 @@ __global__ void dgemm_16x16x16(const double* A, const double* B, double* D, size
                       + LDD * threadIdx.y;   // groups of 16 lanes cover consecutive rows
     D[d_idx] = d[i];
   }
+  asm volatile("s_memtime %[end]\n\t"
+               "s_waitcnt lgkmcnt(0)\n\t"
+               : [end] "=r"(end));
+  total = end - start;
 }
 
 int main(){
