@@ -110,7 +110,18 @@ __global__ void sgemm_16x16x16(const float16_t* A, const float16_t* B, float* D,
 
   // d = __builtin_amdgcn_mfma_f32_16x16x16f16(a, b, d, 0, 0, 0);
 
-  asm volatile("s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
+  asm volatile(
+               "s_nop 0\n\t"
+               "s_nop 0\n\t"
+               "s_nop 0\n\t"
+               "s_nop 0\n\t"
+               "s_nop 0\n\t"
+               "s_nop 0\n\t"
+               "s_nop 0\n\t"
+               "s_nop 0\n\t"
+               "s_nop 0\n\t"
+               "s_nop 0\n\t"
+               "s_waitcnt lgkmcnt(0) & vmcnt(0)\n\t"
                "s_memtime %[start]\n\t"
                "s_waitcnt lgkmcnt(0)\n\t"
                "v_mfma_f32_16x16x16f16 %[D] %[A] %[B] %[C]\n\t"
