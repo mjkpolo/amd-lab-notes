@@ -15,7 +15,6 @@ def main():
     startup_mfma = get_csv("STARTUP_MFMA")
 
     dp_flops = 4096*4096*14336*2
-    flops_per_mfma = 16*16*16*304*4*2
 
     full_df = pd.read_csv(full_mfma)
     startup_df = pd.read_csv(startup_mfma)
