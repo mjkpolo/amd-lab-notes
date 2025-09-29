@@ -20,6 +20,7 @@ THE SOFTWARE.
 */
 
 #include "helper.hpp"
+#include <cassert>
 #include <hip/hip_runtime.h>
 #include <iostream>
 #include <random>
@@ -37,17 +38,13 @@ Output:
   D : 16 x 16 floats (a 16x16 matrix)
 */
 
-constexpr int M = 32;
-constexpr int N = 32;
-constexpr int K = 32;
+constexpr int inst_size = 16;
+constexpr int N = 4 << 10;
+constexpr int phases = N / inst_size;
 
-constexpr int LDA = K;
-constexpr int LDB = N;
-constexpr int LDD = N;
-
-constexpr int A_size = M * LDA;
-constexpr int B_size = K * LDB;
-constexpr int D_size = M * LDD;
+constexpr int A_size = N * N;
+constexpr int B_size = N * N;
+constexpr int D_size = N * N;
 
 __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
                                float *D) {
@@ -58,41 +55,32 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
   float16x4 a;
   float16x4 b;
 
-  int col1_off = 16;
-  int row1_off = 16 * 32;
+  int col_off = inst_size;
+  int row_off = inst_size * N;
 
   // a0,0 @ b0,0 + a0,1 @ b1,0 = d0,0
   // a0,0 @ b0,1 + a0,1 @ b1,1 = d0,1
   // a1,0 @ b0,0 + a1,1 @ b1,0 = d1,0
   // a1,0 @ b0,1 + a1,1 @ b1,1 = d1,1
-  for (int d_col = 0; d_col < 2; d_col++) {
-    for (int d_row = 0; d_row < 2; d_row++) {
+  for (int d_col = 0; d_col < phases; d_col++) {
+    for (int d_row = 0; d_row < phases; d_row++) {
       floatx4 d = {0};
-      for (int i = 0; i < 4; ++i) {
-        const int a_idx =
-            row1_off * d_row + threadIdx.x * LDA + i + threadIdx.y * 4;
-        a[i] = A[a_idx];
+      for (int phase = 0; phase < phases; phase++) {
+        for (int i = 0; i < 4; ++i) {
+          const int a_idx = row_off * d_row + col_off * phase +
+                            threadIdx.x * N + i + threadIdx.y * 4;
+          a[i] = A[a_idx];
 
-        const int b_idx =
-            col1_off * d_col + threadIdx.x + i * LDB + threadIdx.y * LDB * 4;
-        b[i] = B[b_idx];
+          const int b_idx = col_off * d_col + row_off * phase + threadIdx.x +
+                            i * N + threadIdx.y * N * 4;
+          b[i] = B[b_idx];
+        }
+        d = __builtin_amdgcn_mfma_f32_16x16x16f16(a, b, d, 0, 0, 0);
       }
-      d = __builtin_amdgcn_mfma_f32_16x16x16f16(a, b, d, 0, 0, 0);
 
       for (int i = 0; i < 4; ++i) {
-        const int a_idx = row1_off * d_row + col1_off + threadIdx.x * LDA + i +
-                          threadIdx.y * 4;
-        a[i] = A[a_idx];
-
-        const int b_idx = col1_off * d_col + row1_off + threadIdx.x + i * LDB +
-                          threadIdx.y * LDB * 4;
-        b[i] = B[b_idx];
-      }
-      d = __builtin_amdgcn_mfma_f32_16x16x16f16(a, b, d, 0, 0, 0);
-
-      for (int i = 0; i < 4; ++i) {
-        const int d_idx = row1_off * d_row + col1_off * d_col + threadIdx.x +
-                          i * LDD + threadIdx.y * 4 * LDD;
+        const int d_idx = row_off * d_row + col_off * d_col + threadIdx.x +
+                          i * N + threadIdx.y * 4 * N;
 
         D[d_idx] = d[i];
       }
@@ -104,20 +92,26 @@ int main() {
   std::mt19937 gen(0);
   std::uniform_real_distribution<float> dist(-1, 1);
 
+  assert(N % inst_size == 0);
+
+  std::cout << "Generating A matrix..." << std::endl;
   // Make and populate some host matrices
   std::vector<float16_t> A_h(A_size);
   for (int i = 0; i < A_h.size(); ++i) {
     A_h[i] = static_cast<float16_t>(dist(gen));
   }
+  std::cout << "Generating B matrix..." << std::endl;
   std::vector<float16_t> B_h(B_size);
   for (int i = 0; i < B_h.size(); ++i) {
     B_h[i] = static_cast<float16_t>(dist(gen));
   }
 
+  std::cout << "Calculating on host..." << std::endl;
   // Calculate reference D on host
   std::vector<float> Dref_h(D_size);
-  gemm_host(A_h, B_h, Dref_h, M, N, K, LDA, LDB, LDD);
+  gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
 
+  std::cout << "Allocating GPU buffers..." << std::endl;
   // Make and populate device buffers
   float16_t *A_d, *B_d;
   float *D_d;
@@ -129,17 +123,19 @@ int main() {
   HIP_CHECK(hipMemcpy(B_d, B_h.data(), B_size * sizeof(float16_t),
                       hipMemcpyHostToDevice));
 
+  std::cout << "Launching GPU kernel..." << std::endl;
   // Launch GEMM kernel
   sgemm_16x16x16<<<1, dim3(16, 4)>>>(A_d, B_d, D_d);
   HIP_CHECK(hipGetLastError());
 
+  std::cout << "Copying result from GPU..." << std::endl;
   // Copy result back to host
   std::vector<float> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float),
                       hipMemcpyDeviceToHost));
 
   std::cout << "Sum of squared differences of host/device result matrices: "
-            << compute_l2_error(Dref_h, D_h, M, N, LDD, LDD) << std::endl;
+            << compute_l2_error(Dref_h, D_h, N, N, N, N) << std::endl;
 
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));

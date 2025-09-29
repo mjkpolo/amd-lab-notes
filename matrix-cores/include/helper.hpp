@@ -96,11 +96,14 @@ void gemm_host(const std::vector<U>& A,
                const int LDA,
                const int LDB,
                const int LDC) {
+#pragma omp parallel for
   for (int m = 0; m < M; ++m) {
     for (int n = 0; n < N; ++n) {
       T c = 0.0;
       for (int k = 0; k < K; ++k) {
-        c += A[k + m * LDA] * B[n + k * LDB];
+        // c += A[k + m * LDA] * B[n + k * LDB];
+        // from gem5 https://github.com/gem5/gem5/pull/2478
+        c = std::fma(A[k + m * LDA], B[n + k * LDB], c);
       }
       C[n + m * LDC] = c;
     }
