@@ -62,7 +62,7 @@ INCLUDES=-I${INCLUDE_DIR}
 DEFINES=
 
 #.cpp compilation flags
-CXXFLAGS=-O3 --offload-arch=gfx90a,gfx908
+CXXFLAGS=-O3 --offload-arch=gfx90a,gfx908,gfx942
 
 #libraries
 LIBS=
@@ -71,7 +71,7 @@ LIBS=
 DEPS=$(wildcard ${INCLUDE_DIR}/*.hpp)
 
 #source files
-SRC =$(wildcard src/*.cpp)
+SRC =$(wildcard src/marco_test.cpp)
 
 #binaries
 BINS=$(SRC:src/%.cpp=%)
