@@ -1,5 +1,6 @@
 /*
 Copyright (c) 2021-2022 Advanced Micro Devices, Inc. All rights reserved.
+Copyright (c) 2025 University of Central Florida
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -26,18 +27,6 @@ THE SOFTWARE.
 #include <random>
 #include <vector>
 
-/*
-This example code uses the mfma intrinsic __builtin_amdgcn_mfma_f32_16x16x16f16
-to compute a 16x16x16 matrix multiplication.
-
-Input:
-  A : 16 x 16 float16s (a 16x16 matrix)
-  B : 16 x 16 float16s (a 16x16 matrix)
-
-Output:
-  D : 16 x 16 floats (a 16x16 matrix)
-*/
-
 constexpr int inst_size = 16;
 constexpr int N = 4 << 10;
 constexpr int phases = N / inst_size;
@@ -58,10 +47,6 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
   int col_off = inst_size;
   int row_off = inst_size * N;
 
-  // a0,0 @ b0,0 + a0,1 @ b1,0 = d0,0
-  // a0,0 @ b0,1 + a0,1 @ b1,1 = d0,1
-  // a1,0 @ b0,0 + a1,1 @ b1,0 = d1,0
-  // a1,0 @ b0,1 + a1,1 @ b1,1 = d1,1
   for (int d_col = 0; d_col < phases; d_col++) {
     for (int d_row = 0; d_row < phases; d_row++) {
       floatx4 d = {0};
@@ -95,7 +80,6 @@ int main() {
   assert(N % inst_size == 0);
 
   std::cout << "Generating A matrix..." << std::endl;
-  // Make and populate some host matrices
   std::vector<float16_t> A_h(A_size);
   for (int i = 0; i < A_h.size(); ++i) {
     A_h[i] = static_cast<float16_t>(dist(gen));
@@ -107,12 +91,10 @@ int main() {
   }
 
   std::cout << "Calculating on host..." << std::endl;
-  // Calculate reference D on host
   std::vector<float> Dref_h(D_size);
   gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
 
   std::cout << "Allocating GPU buffers..." << std::endl;
-  // Make and populate device buffers
   float16_t *A_d, *B_d;
   float *D_d;
   HIP_CHECK(hipMalloc(&A_d, A_size * sizeof(float16_t)));
@@ -124,12 +106,10 @@ int main() {
                       hipMemcpyHostToDevice));
 
   std::cout << "Launching GPU kernel..." << std::endl;
-  // Launch GEMM kernel
   sgemm_16x16x16<<<1, dim3(16, 4)>>>(A_d, B_d, D_d);
   HIP_CHECK(hipGetLastError());
 
   std::cout << "Copying result from GPU..." << std::endl;
-  // Copy result back to host
   std::vector<float> D_h(D_size);
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float),
                       hipMemcpyDeviceToHost));
