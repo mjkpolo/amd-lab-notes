@@ -5,7 +5,7 @@
 #SBATCH -N 1
 #SBATCH --mem=0
 #SBATCH --exclusive
-#SBATCH -t 00:30:00
+#SBATCH -t 00:02:00
 #SBATCH -p mi3008x
 #SBATCH -q alloc_diwu_04012025_03312026
 
