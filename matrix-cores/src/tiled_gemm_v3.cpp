@@ -30,13 +30,14 @@ THE SOFTWARE.
 constexpr int inst_size = 16;
 constexpr int N = 4 << 10;
 constexpr int phases = N / inst_size;
-constexpr int n_x_wavefronts = 1;
-constexpr int n_y_wavefronts = 1;
+constexpr int n_x_wavefronts = 2;
+constexpr int n_y_wavefronts = 2;
 
 constexpr int A_size = N * N;
 constexpr int B_size = N * N;
 constexpr int D_size = N * N;
 constexpr int col_per_cu = 4;
+constexpr int row_per_cu = 4;
 
 __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
                                float *D) {
@@ -44,10 +45,9 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
   using float16x4 =
       __attribute__((__vector_size__(4 * sizeof(float16_t)))) float16_t;
   using floatx4 = __attribute__((__vector_size__(4 * sizeof(float)))) float;
-  float16x4 a;
-  float16x4 b;
-  // const int row_per_thread = 1;
-  floatx4 d[col_per_cu] = {0};
+  float16x4 a[row_per_cu];
+  float16x4 b[col_per_cu];
+  floatx4 d[row_per_cu][col_per_cu] = {0};
 
   const int col_off = inst_size;
   const int row_off = inst_size * N;
@@ -61,39 +61,51 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
   const int d_col =
       (blockIdx.x * n_x_wavefronts + wavefront_id % n_x_wavefronts) *
       col_per_cu;
-  const int d_row = blockIdx.y * n_y_wavefronts +
-                    (wavefront_id / n_x_wavefronts) % n_y_wavefronts;
+  const int d_row = (blockIdx.y * n_y_wavefronts +
+                     (wavefront_id / n_x_wavefronts) % n_y_wavefronts) *
+                    row_per_cu;
 
 #pragma unroll
   for (int phase = 0; phase < phases; phase++) {
 #pragma unroll
-    for (int i = 0; i < 4; ++i) {
-      const int a_idx =
-          row_off * d_row + col_off * phase + tid_x * N + i + tid_y * 4;
-      a[i] = A[a_idx];
+    for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        const int a_idx = row_off * (d_row + cu_row) + col_off * phase +
+                          tid_x * N + i + tid_y * 4;
+        a[cu_row][i] = A[a_idx];
+      }
     }
-
 #pragma unroll
     for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
 #pragma unroll
       for (int i = 0; i < 4; ++i) {
         const int b_idx = col_off * (d_col + cu_col) + row_off * phase + tid_x +
                           i * N + tid_y * N * 4;
-        b[i] = B[b_idx];
+        b[cu_col][i] = B[b_idx];
       }
-      d[cu_col] =
-          __builtin_amdgcn_mfma_f32_16x16x16f16(a, b, d[cu_col], 0, 0, 0);
+    }
+#pragma unroll
+    for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
+      for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
+        d[cu_row][cu_col] = __builtin_amdgcn_mfma_f32_16x16x16f16(
+            a[cu_row], b[cu_col], d[cu_row][cu_col], 0, 0, 0);
+      }
     }
   }
 
 #pragma unroll
-  for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
+  for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
 #pragma unroll
-    for (int i = 0; i < 4; ++i) {
-      const int d_idx = row_off * d_row + col_off * (d_col + cu_col) + tid_x +
-                        i * N + tid_y * 4 * N;
+    for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        const int d_idx = row_off * (d_row + cu_row) +
+                          col_off * (d_col + cu_col) + tid_x + i * N +
+                          tid_y * 4 * N;
 
-      D[d_idx] = d[cu_col][i];
+        D[d_idx] = d[cu_row][cu_col][i];
+      }
     }
   }
 }
@@ -132,7 +144,7 @@ int main() {
 
   std::cout << "Launching GPU kernel..." << std::endl;
   sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu,
-                        phases / n_y_wavefronts),
+                        phases / n_y_wavefronts / row_per_cu),
                    64 * n_x_wavefronts * n_y_wavefronts>>>(A_d, B_d, D_d);
   HIP_CHECK(hipGetLastError());
 

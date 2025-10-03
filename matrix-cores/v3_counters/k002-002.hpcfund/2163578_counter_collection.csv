@@ -1,3 +1,0 @@
-"Correlation_Id","Dispatch_Id","Agent_Id","Queue_Id","Process_Id","Thread_Id","Grid_Size","Kernel_Id","Kernel_Name","Workgroup_Size","LDS_Block_Size","Scratch_Size","VGPR_Count","Accum_VGPR_Count","SGPR_Count","Counter_Name","Counter_Value","Start_Timestamp","End_Timestamp"
-1,1,2,1,2163578,2163578,1048576,11,"_Z14sgemm_16x16x16PKDF16_S0_Pf",64,0,0,72,0,112,"GRBM_GUI_ACTIVE",28926506.000000,4099288687639171,4099288689448414
-1,1,2,1,2163578,2163578,1048576,11,"_Z14sgemm_16x16x16PKDF16_S0_Pf",64,0,0,72,0,112,"SQ_VALU_MFMA_BUSY_CYCLES",268435456.000000,4099288687639171,4099288689448414
