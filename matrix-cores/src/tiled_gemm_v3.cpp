@@ -29,7 +29,6 @@ THE SOFTWARE.
 
 constexpr int inst_size = 16;
 constexpr int N = 4 << 10;
-constexpr int phases = N / inst_size;
 constexpr int n_x_wavefronts = 2;
 constexpr int n_y_wavefronts = 2;
 
@@ -38,6 +37,8 @@ constexpr int B_size = N * N;
 constexpr int D_size = N * N;
 constexpr int col_per_cu = 4;
 constexpr int row_per_cu = 4;
+constexpr int phase_per_cu = 2;
+constexpr int phases = N / inst_size;
 
 __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
                                float *D) {
@@ -45,12 +46,12 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
   using float16x4 =
       __attribute__((__vector_size__(4 * sizeof(float16_t)))) float16_t;
   using floatx4 = __attribute__((__vector_size__(4 * sizeof(float)))) float;
-  float16x4 a[row_per_cu];
-  float16x4 b[col_per_cu];
+  float16x4 a[phase_per_cu][row_per_cu];
+  float16x4 b[phase_per_cu][col_per_cu];
   floatx4 d[row_per_cu][col_per_cu] = {0};
 
-  const int col_off = inst_size;
-  const int row_off = inst_size * N;
+  constexpr int col_off = inst_size;
+  constexpr int row_off = inst_size * N;
 
   const int tid = threadIdx.x + threadIdx.y * blockDim.x;
   const int lane_id = tid % 64;
@@ -66,30 +67,46 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
                     row_per_cu;
 
 #pragma unroll
-  for (int phase = 0; phase < phases; phase++) {
+  for (int phase = 0; phase < phases; phase = phase + phase_per_cu) {
+
 #pragma unroll
-    for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
+    for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
 #pragma unroll
-      for (int i = 0; i < 4; ++i) {
-        const int a_idx = row_off * (d_row + cu_row) + col_off * phase +
-                          tid_x * N + i + tid_y * 4;
-        a[cu_row][i] = A[a_idx];
+      for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
+#pragma unroll
+        for (int i = 0; i < 4; ++i) {
+          const int a_idx = row_off * (d_row + cu_row) +
+                            col_off * (phase + cu_phase) + tid_x * N + i +
+                            tid_y * 4;
+          a[cu_phase][cu_row][i] = A[a_idx];
+        }
       }
     }
+
 #pragma unroll
-    for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
+    for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
 #pragma unroll
-      for (int i = 0; i < 4; ++i) {
-        const int b_idx = col_off * (d_col + cu_col) + row_off * phase + tid_x +
-                          i * N + tid_y * N * 4;
-        b[cu_col][i] = B[b_idx];
-      }
-    }
-#pragma unroll
-    for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
       for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
-        d[cu_row][cu_col] = __builtin_amdgcn_mfma_f32_16x16x16f16(
-            a[cu_row], b[cu_col], d[cu_row][cu_col], 0, 0, 0);
+#pragma unroll
+        for (int i = 0; i < 4; ++i) {
+          const int b_idx = col_off * (d_col + cu_col) +
+                            row_off * (phase + cu_phase) + tid_x + i * N +
+                            tid_y * N * 4;
+          b[cu_phase][cu_col][i] = B[b_idx];
+        }
+      }
+    }
+
+#pragma unroll
+    for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
+#pragma unroll
+      for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
+#pragma unroll
+        for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
+          d[cu_row][cu_col] = __builtin_amdgcn_mfma_f32_16x16x16f16(
+              a[cu_phase][cu_row], b[cu_phase][cu_col], d[cu_row][cu_col], 0, 0,
+              0);
+        }
       }
     }
   }
