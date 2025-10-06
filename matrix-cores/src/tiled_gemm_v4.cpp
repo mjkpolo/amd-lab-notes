@@ -28,16 +28,16 @@ THE SOFTWARE.
 #include <vector>
 
 constexpr int inst_size = 16;
-constexpr int N = 1 << 10;
-constexpr int n_x_wavefronts = 2;
-constexpr int n_y_wavefronts = 2;
+constexpr int N = 4 << 10;
+constexpr int n_x_wavefronts = 4;
+constexpr int n_y_wavefronts = 4;
 
 constexpr int A_size = N * N;
 constexpr int B_size = N * N;
 constexpr int D_size = N * N;
-constexpr int col_per_cu = 2;
-constexpr int row_per_cu = 2;
-constexpr int phase_per_cu = 1;
+constexpr int col_per_cu = 4;
+constexpr int row_per_cu = 4;
+constexpr int phase_per_cu = 4;
 constexpr int phases = N / inst_size;
 
 __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,

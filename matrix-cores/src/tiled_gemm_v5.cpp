@@ -30,19 +30,18 @@ THE SOFTWARE.
 constexpr int inst_size = 16;
 constexpr int N = 4 << 10;
 constexpr int n_x_wavefronts = 4;
-constexpr int n_y_wavefronts = 2;
+constexpr int n_y_wavefronts = 4;
 
 constexpr int A_size = N * N;
 constexpr int B_size = N * N;
 constexpr int D_size = N * N;
-constexpr int col_per_cu = 16;
-constexpr int row_per_cu = 2;
-constexpr int phase_per_cu = 1;
+constexpr int col_per_cu = 4;
+constexpr int row_per_cu = 4;
+constexpr int phase_per_cu = 4;
 constexpr int phases = N / inst_size;
 
 extern "C" __attribute__((global)) void
-    __attribute__((amdgpu_flat_work_group_size(1, 64 * n_x_wavefronts *
-                                                      n_y_wavefronts)))
+    __attribute__((amdgpu_flat_work_group_size(1, 64 * n_x_wavefronts * n_y_wavefronts)))
     sgemm_16x16x16(const float16_t *A, const float16_t *B, float *D) {
 
   using float16x4 =
@@ -52,36 +51,98 @@ extern "C" __attribute__((global)) void
   float16x4 b[phase_per_cu][col_per_cu];
   floatx4 d[row_per_cu][col_per_cu] = {0};
 
+  __shared__ float16x4 s_a[phase_per_cu][row_per_cu * n_y_wavefronts][64];
+  __shared__ float16x4 s_b[phase_per_cu][col_per_cu * n_x_wavefronts][64];
+
   constexpr int col_off = inst_size;
   constexpr int row_off = inst_size * N;
 
   const int tid = threadIdx.x + threadIdx.y * blockDim.x;
   const int lane_id = tid % 64;
-  const int tid_x = lane_id % 16;
-  const int tid_y = lane_id / 16;
+  const int lane_x = lane_id % 16;
+  const int lane_y = lane_id / 16;
   const int wavefront_id = tid / 64;
+  const int wavefront_x = wavefront_id % n_x_wavefronts;
+  const int wavefront_y = (wavefront_id / n_x_wavefronts) % n_y_wavefronts;
 
-  const int d_col =
-      (blockIdx.x * n_x_wavefronts + wavefront_id % n_x_wavefronts) *
-      col_per_cu;
-  const int d_row = (blockIdx.y * n_y_wavefronts +
-                     (wavefront_id / n_x_wavefronts) % n_y_wavefronts) *
-                    row_per_cu;
+  const int d_col = blockIdx.x * n_x_wavefronts * col_per_cu;
+  const int cu_col_off = col_per_cu * wavefront_x;
+
+  const int d_row = blockIdx.y * n_y_wavefronts * row_per_cu;
+  const int cu_row_off = wavefront_y * row_per_cu;
 
 #pragma unroll
   for (int phase = 0; phase < phases; phase = phase + phase_per_cu) {
 
 #pragma unroll
     for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
+      // TODO remove this because it's dumb
+      // maybe just force n_x_wavefronts <= row_per_cu
+      if constexpr (n_x_wavefronts > row_per_cu) {
+        if (wavefront_x == 0) {
+#pragma unroll
+          for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
+#pragma unroll
+            for (int i = 0; i < 4; ++i) {
+              const int a_idx = row_off * (d_row + cu_row + cu_row_off) +
+                                col_off * (phase + cu_phase) + lane_x * N + i +
+                                lane_y * 4;
+              s_a[cu_phase][cu_row + cu_row_off][lane_id][i] = A[a_idx];
+            }
+          }
+        }
+      } else {
+#pragma unroll
+        for (int cu_row = 0; cu_row < row_per_cu;
+             cu_row = cu_row + n_x_wavefronts) {
+#pragma unroll
+          for (int i = 0; i < 4; ++i) {
+            const int a_idx =
+                row_off * (d_row + cu_row + wavefront_x + cu_row_off) +
+                col_off * (phase + cu_phase) + lane_x * N + i + lane_y * 4;
+            s_a[cu_phase][cu_row + wavefront_x + cu_row_off][lane_id][i] =
+                A[a_idx];
+          }
+        }
+      }
+    }
+#pragma unroll
+    for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
+      if constexpr (n_y_wavefronts > row_per_cu) {
+        if (wavefront_y == 0) {
+#pragma unroll
+          for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
+#pragma unroll
+            for (int i = 0; i < 4; ++i) {
+              const int b_idx = col_off * (d_col + cu_col + cu_col_off) +
+                                row_off * (phase + cu_phase) + lane_x + i * N +
+                                lane_y * N * 4;
+              s_b[cu_phase][cu_col + cu_col_off][lane_id][i] = B[b_idx];
+            }
+          }
+        }
+      } else {
+#pragma unroll
+        for (int cu_col = 0; cu_col < col_per_cu;
+             cu_col = cu_col + n_y_wavefronts) {
+#pragma unroll
+          for (int i = 0; i < 4; ++i) {
+            const int b_idx =
+                col_off * (d_col + cu_col + wavefront_y + cu_col_off) +
+                row_off * (phase + cu_phase) + lane_x + i * N + lane_y * N * 4;
+            s_b[cu_phase][cu_col + wavefront_y + cu_col_off][lane_id][i] =
+                B[b_idx];
+          }
+        }
+      }
+    }
+    __syncthreads();
+
+#pragma unroll
+    for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
 #pragma unroll
       for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
-#pragma unroll
-        for (int i = 0; i < 4; ++i) {
-          const int a_idx = row_off * (d_row + cu_row) +
-                            col_off * (phase + cu_phase) + tid_x * N + i +
-                            tid_y * 4;
-          a[cu_phase][cu_row][i] = A[a_idx];
-        }
+        a[cu_phase][cu_row] = s_a[cu_phase][cu_row + cu_row_off][lane_id];
       }
     }
 
@@ -89,13 +150,7 @@ extern "C" __attribute__((global)) void
     for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
 #pragma unroll
       for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
-#pragma unroll
-        for (int i = 0; i < 4; ++i) {
-          const int b_idx = col_off * (d_col + cu_col) +
-                            row_off * (phase + cu_phase) + tid_x + i * N +
-                            tid_y * N * 4;
-          b[cu_phase][cu_col][i] = B[b_idx];
-        }
+        b[cu_phase][cu_col] = s_b[cu_phase][cu_col + cu_col_off][lane_id];
       }
     }
 
@@ -111,6 +166,7 @@ extern "C" __attribute__((global)) void
         }
       }
     }
+    __syncthreads();
   }
 
 #pragma unroll
@@ -119,9 +175,9 @@ extern "C" __attribute__((global)) void
     for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
 #pragma unroll
       for (int i = 0; i < 4; ++i) {
-        const int d_idx = row_off * (d_row + cu_row) +
-                          col_off * (d_col + cu_col) + tid_x + i * N +
-                          tid_y * 4 * N;
+        const int d_idx = row_off * (d_row + cu_row + cu_row_off) +
+                          col_off * (d_col + cu_col + cu_col_off) + lane_x +
+                          i * N + lane_y * 4 * N;
 
         D[d_idx] = d[cu_row][cu_col][i];
       }
@@ -162,13 +218,9 @@ int main() {
                       hipMemcpyHostToDevice));
 
   std::cout << "Launching GPU kernel..." << std::endl;
-  // 16 col per cu
-  // 2 row per cu
-  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu, // 4
-                        phases / n_y_wavefronts / row_per_cu // 64
-                      ),
-                   64 * n_x_wavefronts * n_y_wavefronts // 64, 4, 2
-                   >>>(A_d, B_d, D_d);
+  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu,
+                        phases / n_y_wavefronts / row_per_cu),
+                   64 * n_x_wavefronts * n_y_wavefronts>>>(A_d, B_d, D_d);
   HIP_CHECK(hipGetLastError());
 
   std::cout << "Copying result from GPU..." << std::endl;

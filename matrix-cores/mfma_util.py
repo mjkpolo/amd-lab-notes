@@ -31,12 +31,14 @@ def derive_mfma_util(df):
     )
 
 
-def main(counter_dir: str):
-    counter_dir_path = Path(counter_dir)
-    assert counter_dir_path.is_dir(), "Pass a directory"
-    csvs = tuple(counter_dir_path.rglob("*_counter_collection.csv"))
-    assert len(csvs) == 1
-    csv_fn = csvs[0]
+def main(counter: str):
+    counter_dir_path = Path(counter)
+    if counter_dir_path.is_dir():
+        csvs = tuple(counter_dir_path.rglob("*_counter_collection.csv"))
+        assert len(csvs) == 1
+        csv_fn = csvs[0]
+    else:
+        csv_fn = counter
     df = get_pivoted(csv_fn)
     derive_mfma_util(df)
     mfma_util = df["MFMA Util"].values

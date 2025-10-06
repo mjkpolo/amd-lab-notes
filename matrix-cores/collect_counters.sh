@@ -27,11 +27,13 @@ else
 fi
 
 ROCPROF_ARGS=(
-  --pmc SQ_VALU_MFMA_BUSY_CYCLES,GRBM_GUI_ACTIVE
-  -d "$PROF_DIR"
+  "--pmc SQ_VALU_MFMA_BUSY_CYCLES,GRBM_GUI_ACTIVE -d ${PROF_DIR}_1"
+  # "--pmc SQ_VALU_MFMA_BUSY_CYCLES,GRBM_GUI_ACTIVE -d ${PROF_DIR}_2"
 )
 
 PROF_BIN=/opt/rocm-6.4.1/bin/rocprofv3
 
-"$PROF_BIN" "${ROCPROF_ARGS[@]}" -- $EXE
+for args in "${ROCPROF_ARGS[@]}"; do
+  "$PROF_BIN" $args -- $EXE
+done
 
