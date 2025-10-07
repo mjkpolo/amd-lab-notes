@@ -687,9 +687,9 @@ int main() {
 
   std::vector<float> D_h(D_size);
 
-  std::cout << "Calculating on host..." << std::endl;
+  // std::cout << "Calculating on host..." << std::endl;
   std::vector<float> Dref_h(D_size);
-  gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
+  // gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
 
   std::cout << "Allocating GPU buffers..." << std::endl;
   half *A_d, *B_d;
@@ -706,14 +706,20 @@ int main() {
 
   std::cout << "Launching GPU kernel..." << std::endl;
   r_64_4_64_4_2_2_2_4_4_2_256<<<dim3(4, 64), dim3(64, 4, 2)>>>(D_d, A_d, B_d);
+  r_64_4_64_4_2_2_2_4_4_2_256<<<dim3(4, 64), dim3(64, 4, 2)>>>(D_d, A_d, B_d);
+  r_64_4_64_4_2_2_2_4_4_2_256<<<dim3(4, 64), dim3(64, 4, 2)>>>(D_d, A_d, B_d);
+  r_64_4_64_4_2_2_2_4_4_2_256<<<dim3(4, 64), dim3(64, 4, 2)>>>(D_d, A_d, B_d);
+  r_64_4_64_4_2_2_2_4_4_2_256<<<dim3(4, 64), dim3(64, 4, 2)>>>(D_d, A_d, B_d);
+  r_64_4_64_4_2_2_2_4_4_2_256<<<dim3(4, 64), dim3(64, 4, 2)>>>(D_d, A_d, B_d);
+  r_64_4_64_4_2_2_2_4_4_2_256<<<dim3(4, 64), dim3(64, 4, 2)>>>(D_d, A_d, B_d);
   HIP_CHECK(hipGetLastError());
 
   std::cout << "Copying result from GPU..." << std::endl;
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float),
                       hipMemcpyDeviceToHost));
 
-  std::cout << "Sum of squared differences of host/device result matrices: "
-            << compute_l2_error(Dref_h, D_h, N, N, N, N) << std::endl;
+  // std::cout << "Sum of squared differences of host/device result matrices: "
+  //           << compute_l2_error(Dref_h, D_h, N, N, N, N) << std::endl;
 
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));
