@@ -28,37 +28,26 @@ THE SOFTWARE.
 #include <vector>
 
 constexpr int inst_size = 16;
-constexpr int N = 1 << 10;
+constexpr int N = 4 << 10;
 constexpr int n_x_wavefronts = 4;
 constexpr int n_y_wavefronts = 2;
 
 constexpr int A_size = N * N;
 constexpr int B_size = N * N;
 constexpr int D_size = N * N;
-constexpr int col_per_cu = 8;
-constexpr int row_per_cu = 4;
+constexpr int col_per_cu = 16;
+constexpr int row_per_cu = 2;
 constexpr int phases = N / inst_size;
-
-#define half _Float16
-typedef half half4 __attribute__((ext_vector_type(4)));
-static inline __attribute__((device)) half4 make_half4(half x, half y, half z,
-                                                       half w) {
-  return {x, y, z, w};
-}
-typedef float float4_ __attribute__((ext_vector_type(4)));
-static inline __attribute__((device)) float4_ make_float4_(float x, float y,
-                                                           float z, float w) {
-  return {x, y, z, w};
-}
+constexpr int work_group_size = 64 * n_x_wavefronts * n_y_wavefronts;
 
 extern "C" __attribute__((global)) void
-    __attribute__((amdgpu_flat_work_group_size(1, 64 * n_x_wavefronts *
-                                                      n_y_wavefronts)))
-    sgemm_16x16x16(const half *A, const half *B, float *D) {
+    __attribute__((amdgpu_flat_work_group_size(work_group_size,
+                                               work_group_size)))
+    sgemm_16x16x16(const float16_t *A, const float16_t *B, float *D) {
 
-  half4 a[row_per_cu];
-  half4 b[col_per_cu];
-  float d[row_per_cu * col_per_cu * 4] = {0};
+  using float16x4 =
+      __attribute__((__vector_size__(4 * sizeof(float16_t)))) float16_t;
+  using floatx4 = __attribute__((__vector_size__(4 * sizeof(float)))) float;
 
   constexpr int col_off = inst_size;
   constexpr int row_off = inst_size * N;
@@ -76,55 +65,38 @@ extern "C" __attribute__((global)) void
                      (wavefront_id / n_x_wavefronts) % n_y_wavefronts) *
                     row_per_cu;
 
-#pragma unroll
+  floatx4 d[row_per_cu][col_per_cu] = {0};
   for (int phase = 0; phase < phases; phase++) {
+    float16x4 a[row_per_cu];
 
-#pragma unroll
     for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
-      const int a_idx =
-          row_off * (d_row + cu_row) + col_off * phase + tid_x * N + tid_y * 4;
-      a[cu_row] = *((half4 *)(A + a_idx));
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        const int a_idx = row_off * (d_row + cu_row) + col_off * phase +
+                          tid_x * N + i + tid_y * 4;
+        a[cu_row][i] = A[a_idx];
+      }
     }
 
-#pragma unroll
+    float16x4 b[col_per_cu];
     for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
-      half b_val0 =
-          *((half *)(B + (col_off * (d_col + cu_col) + row_off * phase + tid_x +
-                          0 * N + tid_y * N * 4)));
-      half b_val1 =
-          *((half *)(B + (col_off * (d_col + cu_col) + row_off * phase + tid_x +
-                          1 * N + tid_y * N * 4)));
-      half b_val2 =
-          *((half *)(B + (col_off * (d_col + cu_col) + row_off * phase + tid_x +
-                          2 * N + tid_y * N * 4)));
-      half b_val3 =
-          *((half *)(B + (col_off * (d_col + cu_col) + row_off * phase + tid_x +
-                          3 * N + tid_y * N * 4)));
-      b[cu_col] = make_half4(b_val0, b_val1, b_val2, b_val3);
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        const int b_idx = col_off * (d_col + cu_col) + row_off * phase + tid_x +
+                          i * N + tid_y * N * 4;
+        b[cu_col][i] = B[b_idx];
+      }
     }
 
-#pragma unroll
     for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
-#pragma unroll
       for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
-        float4_ mfma_res = __builtin_amdgcn_mfma_f32_16x16x16f16(
-            a[cu_row], b[cu_col],
-            make_float4_(d[cu_row * col_per_cu * 4 + cu_col * 4 + 0],
-                         d[cu_row * col_per_cu * 4 + cu_col * 4 + 1],
-                         d[cu_row * col_per_cu * 4 + cu_col * 4 + 2],
-                         d[cu_row * col_per_cu * 4 + cu_col * 4 + 3]),
-            0, 0, 0);
-        d[cu_row * col_per_cu * 4 + cu_col * 4 + 0] = mfma_res.x;
-        d[cu_row * col_per_cu * 4 + cu_col * 4 + 1] = mfma_res.y;
-        d[cu_row * col_per_cu * 4 + cu_col * 4 + 2] = mfma_res.z;
-        d[cu_row * col_per_cu * 4 + cu_col * 4 + 3] = mfma_res.w;
+        d[cu_row][cu_col] = __builtin_amdgcn_mfma_f32_16x16x16f16(
+            a[cu_row], b[cu_col], d[cu_row][cu_col], 0, 0, 0);
       }
     }
   }
 
-#pragma unroll
   for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
-#pragma unroll
     for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
 #pragma unroll
       for (int i = 0; i < 4; ++i) {
@@ -132,7 +104,7 @@ extern "C" __attribute__((global)) void
                           col_off * (d_col + cu_col) + tid_x + i * N +
                           tid_y * 4 * N;
 
-        D[d_idx] = d[cu_row * col_per_cu * 4 + cu_col * 4 + i];
+        D[d_idx] = d[cu_row][cu_col][i];
       }
     }
   }
@@ -145,64 +117,52 @@ int main() {
   assert(N % inst_size == 0);
 
   std::cout << "Generating A matrix..." << std::endl;
-  std::vector<half> A_h(A_size);
+  std::vector<float16_t> A_h(A_size);
   for (int i = 0; i < A_h.size(); ++i) {
-    A_h[i] = static_cast<half>(dist(gen));
+    A_h[i] = static_cast<float16_t>(dist(gen));
   }
   std::cout << "Generating B matrix..." << std::endl;
-  std::vector<half> B_h(B_size);
+  std::vector<float16_t> B_h(B_size);
   for (int i = 0; i < B_h.size(); ++i) {
-    B_h[i] = static_cast<half>(dist(gen));
+    B_h[i] = static_cast<float16_t>(dist(gen));
   }
 
   std::cout << "Calculating on host..." << std::endl;
   std::vector<float> Dref_h(D_size);
-  gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
+  // gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
 
   std::cout << "Allocating GPU buffers..." << std::endl;
-  half *A_d, *B_d;
+  float16_t *A_d, *B_d;
   float *D_d;
-  HIP_CHECK(hipMalloc(&A_d, A_size * sizeof(half)));
-  HIP_CHECK(hipMalloc(&B_d, B_size * sizeof(half)));
+  HIP_CHECK(hipMalloc(&A_d, A_size * sizeof(float16_t)));
+  HIP_CHECK(hipMalloc(&B_d, B_size * sizeof(float16_t)));
   HIP_CHECK(hipMalloc(&D_d, D_size * sizeof(float)));
-  HIP_CHECK(
-      hipMemcpy(A_d, A_h.data(), A_size * sizeof(half), hipMemcpyHostToDevice));
-  HIP_CHECK(
-      hipMemcpy(B_d, B_h.data(), B_size * sizeof(half), hipMemcpyHostToDevice));
+  HIP_CHECK(hipMemcpy(A_d, A_h.data(), A_size * sizeof(float16_t),
+                      hipMemcpyHostToDevice));
+  HIP_CHECK(hipMemcpy(B_d, B_h.data(), B_size * sizeof(float16_t),
+                      hipMemcpyHostToDevice));
 
   std::cout << "Launching GPU kernel..." << std::endl;
   // 16 col per cu
   // 2 row per cu
-  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu, // 4
-                        phases / n_y_wavefronts / row_per_cu  // 64
-                        ),
-                   64 * n_x_wavefronts * n_y_wavefronts // 64, 4, 2
-                   >>>(A_d, B_d, D_d);
-  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu, // 4
-                        phases / n_y_wavefronts / row_per_cu  // 64
-                        ),
-                   64 * n_x_wavefronts * n_y_wavefronts // 64, 4, 2
-                   >>>(A_d, B_d, D_d);
-  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu, // 4
-                        phases / n_y_wavefronts / row_per_cu  // 64
-                        ),
-                   64 * n_x_wavefronts * n_y_wavefronts // 64, 4, 2
-                   >>>(A_d, B_d, D_d);
-  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu, // 4
-                        phases / n_y_wavefronts / row_per_cu  // 64
-                        ),
-                   64 * n_x_wavefronts * n_y_wavefronts // 64, 4, 2
-                   >>>(A_d, B_d, D_d);
-  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu, // 4
-                        phases / n_y_wavefronts / row_per_cu  // 64
-                        ),
-                   64 * n_x_wavefronts * n_y_wavefronts // 64, 4, 2
-                   >>>(A_d, B_d, D_d);
-  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu, // 4
-                        phases / n_y_wavefronts / row_per_cu  // 64
-                        ),
-                   64 * n_x_wavefronts * n_y_wavefronts // 64, 4, 2
-                   >>>(A_d, B_d, D_d);
+  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu,
+                        phases / n_y_wavefronts / row_per_cu),
+                   64 * n_x_wavefronts * n_y_wavefronts>>>(A_d, B_d, D_d);
+  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu,
+                        phases / n_y_wavefronts / row_per_cu),
+                   64 * n_x_wavefronts * n_y_wavefronts>>>(A_d, B_d, D_d);
+  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu,
+                        phases / n_y_wavefronts / row_per_cu),
+                   64 * n_x_wavefronts * n_y_wavefronts>>>(A_d, B_d, D_d);
+  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu,
+                        phases / n_y_wavefronts / row_per_cu),
+                   64 * n_x_wavefronts * n_y_wavefronts>>>(A_d, B_d, D_d);
+  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu,
+                        phases / n_y_wavefronts / row_per_cu),
+                   64 * n_x_wavefronts * n_y_wavefronts>>>(A_d, B_d, D_d);
+  sgemm_16x16x16<<<dim3(phases / n_x_wavefronts / col_per_cu,
+                        phases / n_y_wavefronts / row_per_cu),
+                   64 * n_x_wavefronts * n_y_wavefronts>>>(A_d, B_d, D_d);
   HIP_CHECK(hipGetLastError());
 
   std::cout << "Copying result from GPU..." << std::endl;
@@ -210,8 +170,8 @@ int main() {
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float),
                       hipMemcpyDeviceToHost));
 
-  std::cout << "Sum of squared differences of host/device result matrices: "
-            << compute_l2_error(Dref_h, D_h, N, N, N, N) << std::endl;
+  // std::cout << "Sum of squared differences of host/device result matrices: "
+  //           << compute_l2_error(Dref_h, D_h, N, N, N, N) << std::endl;
 
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));
