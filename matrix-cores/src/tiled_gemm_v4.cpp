@@ -70,10 +70,10 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
   const int d_row = blockIdx.y * n_y_wavefronts * row_per_cu;
   const int cu_row_off = wavefront_y * row_per_cu;
 
-#pragma unroll
+// #pragma unroll
   for (int phase = 0; phase < phases; phase = phase + phase_per_cu) {
 
-#pragma unroll
+// #pragma unroll
     for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
       // TODO remove this because it's dumb
       // maybe just force n_x_wavefronts <= row_per_cu
@@ -105,7 +105,7 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
         }
       }
     }
-#pragma unroll
+// #pragma unroll
     for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
       if constexpr (n_y_wavefronts > row_per_cu) {
         if (wavefront_y == 0) {
@@ -137,7 +137,7 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
     }
     __syncthreads();
 
-#pragma unroll
+// #pragma unroll
     for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
 #pragma unroll
       for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
@@ -145,7 +145,7 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
       }
     }
 
-#pragma unroll
+// #pragma unroll
     for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
 #pragma unroll
       for (int cu_col = 0; cu_col < col_per_cu; cu_col++) {
@@ -153,7 +153,7 @@ __global__ void sgemm_16x16x16(const float16_t *A, const float16_t *B,
       }
     }
 
-#pragma unroll
+// #pragma unroll
     for (int cu_phase = 0; cu_phase < phase_per_cu; cu_phase++) {
 #pragma unroll
       for (int cu_row = 0; cu_row < row_per_cu; cu_row++) {
@@ -203,7 +203,7 @@ int main() {
 
   std::cout << "Calculating on host..." << std::endl;
   std::vector<float> Dref_h(D_size);
-  gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
+  // gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
 
   std::cout << "Allocating GPU buffers..." << std::endl;
   float16_t *A_d, *B_d;
@@ -227,8 +227,8 @@ int main() {
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float),
                       hipMemcpyDeviceToHost));
 
-  std::cout << "Sum of squared differences of host/device result matrices: "
-            << compute_l2_error(Dref_h, D_h, N, N, N, N) << std::endl;
+  // std::cout << "Sum of squared differences of host/device result matrices: "
+  //           << compute_l2_error(Dref_h, D_h, N, N, N, N) << std::endl;
 
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));

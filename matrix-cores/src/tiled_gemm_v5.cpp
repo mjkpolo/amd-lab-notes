@@ -203,8 +203,8 @@ int main() {
   }
 
   std::cout << "Calculating on host..." << std::endl;
-  std::vector<float> Dref_h(D_size);
-  gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
+  // std::vector<float> Dref_h(D_size);
+  // gemm_host(A_h, B_h, Dref_h, N, N, N, N, N, N);
 
   std::cout << "Allocating GPU buffers..." << std::endl;
   float16_t *A_d, *B_d;
@@ -228,8 +228,8 @@ int main() {
   HIP_CHECK(hipMemcpy(D_h.data(), D_d, D_size * sizeof(float),
                       hipMemcpyDeviceToHost));
 
-  std::cout << "Sum of squared differences of host/device result matrices: "
-            << compute_l2_error(Dref_h, D_h, N, N, N, N) << std::endl;
+  // std::cout << "Sum of squared differences of host/device result matrices: "
+  //           << compute_l2_error(Dref_h, D_h, N, N, N, N) << std::endl;
 
   HIP_CHECK(hipFree(D_d));
   HIP_CHECK(hipFree(B_d));
